@@ -1,0 +1,1445 @@
+from user_voice import get_voice
+from datetime import datetime
+from logic_memory_manager import memorymanager, _parse_flags
+
+from logic_prompt import build_system_prompt
+
+from rich.console import Console
+from rich.style import Style
+from dotenv import load_dotenv
+load_dotenv()
+
+from openai import OpenAI,OpenAIError
+from activity_monitor import monitor
+from gui_controller import Control
+
+
+from tool_router import guess_tool
+import logic_voice
+import importlib
+import json
+
+
+import subprocess
+import time
+import os
+import re
+import sys
+import base64
+import tempfile
+import os
+import queue
+import threading
+import time
+from io import BytesIO
+
+
+
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
+os.environ['PYTHONIOENCODING'] = 'utf-8'
+
+
+
+
+
+speak_stream = logic_voice.speak_stream
+speak_async = logic_voice.speak_async
+speak_queue = logic_voice.speak_queue
+stop_voice = logic_voice.stop_voice
+
+API_KEY = os.getenv("API_KEY", "")
+BASE_URL = os.getenv("BASE_URL", "http://localhost:20128/v1")
+
+
+#MODEL = "agy/gemini-3.1-flash-lite" #* good (main)
+#MODEL = "tokenharbor/deepseek-v4.1-flash:free"
+#MODEL = "gemini/gemini-3.5-flash-lite"
+#MODEL = "agn/agnes-3.0-flash"
+
+#MODEL = "cl/cline-free/gemini-3.8-flash"
+MODEL = os.getenv("MODEL", "antigravity/gemini-3.7-flash-tiered")
+
+print(f'model in use: {MODEL}')
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+MODEL_NAME_GROQ = os.getenv("MODEL_NAME_GROQ", "openai/gpt-oss-120b")
+
+#* npx omniroute
+
+
+the_console = Console()
+
+# ===== Omniroute bootstrap =====
+import socket
+import subprocess
+import sys
+import time
+import atexit
+
+OMNROUTE_URL = "http://127.0.0.1:20128/v1"
+OMNROUTE_HOST = "127.0.0.1"
+OMNROUTE_PORT = 20128
+
+OMNROUTE_START_TIMEOUT = 10
+OMNROUTE_POLL_INTERVAL = 0.1
+
+omniroute_proc = None
+
+
+def _is_omniroute_running():
+    try:
+        with socket.create_connection(
+            (OMNROUTE_HOST, OMNROUTE_PORT),
+            timeout=0.2
+        ):
+            return True
+    except OSError:
+        return False
+
+
+def _wait_for_omniroute():
+    deadline = time.monotonic() + OMNROUTE_START_TIMEOUT
+
+    while time.monotonic() < deadline:
+        if _is_omniroute_running():
+            return True
+
+        time.sleep(OMNROUTE_POLL_INTERVAL)
+
+    return False
+
+
+def ensure_omniroute():
+    global omniroute_proc
+
+    if _is_omniroute_running():
+        print("[Omniroute] Already active — skipping startup.")
+        return
+
+    print("[Omniroute] Not detected. Starting omniroute...")
+
+    try:
+        omniroute_proc = subprocess.Popen(
+            ["omniroute"],
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
+        )
+
+    except FileNotFoundError:
+        print("[Omniroute] ERROR: 'omniroute' command not found.")
+        sys.exit(1)
+
+    if _wait_for_omniroute():
+        print("[Omniroute] Ready.")
+    else:
+        print(
+            f"[Omniroute] ERROR: Timed out after "
+            f"{OMNROUTE_START_TIMEOUT}s."
+        )
+
+        if omniroute_proc:
+            omniroute_proc.terminate()
+
+        sys.exit(1)
+
+
+def cleanup_omniroute():
+    global omniroute_proc
+
+    if omniroute_proc is not None and omniroute_proc.poll() is None:
+        print("[Omniroute] Shutting down...")
+        omniroute_proc.terminate()
+        omniroute_proc = None
+
+
+ensure_omniroute()
+atexit.register(cleanup_omniroute)
+# ===== End Omniroute bootstrap =====
+
+client = OpenAI(
+    api_key=API_KEY,
+    base_url=BASE_URL,
+    default_headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+)
+
+
+Code_MODEL = ''
+class OpenAIChunkWrapper:
+    def __init__(self, text):
+        self.text = text
+class OpenAIChatSession:
+    def __init__(self, client, model, system_instruction, history=None, temperature=1.0, top_p=0.9):
+        self.client = client
+        self.model = model
+        self.system_instruction = system_instruction
+        self.history = history or []
+        self.temperature = temperature
+        self.top_p = top_p
+        
+    def get_history(self):
+        history_text = ""
+        for msg in self.history:
+            role = msg.get("role")
+            content = msg.get("content")
+            if isinstance(content, list):
+                text_parts = [part.get("text", "") for part in content if part.get("type") == "text"]
+                content_str = " ".join(text_parts)
+            else:
+                content_str = str(content)
+            history_text += f"{role}: {content_str}\n"
+        return history_text
+
+    def send_message_stream(self, prompt):
+        user_content = []
+        if isinstance(prompt, list):
+            for part in prompt:
+                if isinstance(part, str):
+                    user_content.append({"type": "text", "text": part})
+                elif hasattr(part, "save"):  # Converts screenshot PIL images automatically
+                    buffered = BytesIO()
+                    part.save(buffered, format="JPEG")
+                    img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+                    user_content.append({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{img_str}"
+                        }
+                    })
+        else:
+            user_content = prompt
+
+        self.history.append({"role": "user", "content": user_content})
+
+        messages = [{"role": "system", "content": self.system_instruction}]
+        messages.extend(self.history)
+
+        stream = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=self.temperature,
+            top_p=self.top_p,
+            stream=True,
+            reasoning_effort="medium", #*here
+            # extra_body={
+            #     "reasoning_effort": "none"
+            # },
+            
+        )
+
+        full_reply = ""
+        for chunk in stream:
+            if chunk.choices:
+                delta = chunk.choices[0].delta
+                content = getattr(delta, "content", None)
+                if content is not None:
+                    full_reply += content
+                    yield OpenAIChunkWrapper(content)
+
+        self.history.append({"role": "assistant", "content": full_reply})
+
+
+    def clean_history(self):
+        cleaned = []
+        for msg in self.history:
+            role = msg.get('role')
+            content = msg.get('content')
+            if isinstance(content, list):
+                text_parts = [part.get('text', '') for part in content if part.get('type') == 'text']
+                content_str = ' '.join(text_parts)
+            else:
+                content_str = str(content)
+            if role == 'assistant' and '```' in content_str:
+                continue
+            if role == 'user' and 'SCRIPT_RESULT:' in content_str:
+                continue
+            cleaned.append(msg)
+
+        self.history = cleaned
+
+class Base_AI():
+    def __init__(self):
+
+        self.chat = OpenAIChatSession(
+            client=client,
+            model=MODEL,
+            system_instruction=build_system_prompt(),
+            temperature=0.3,
+            top_p=0.9,
+        
+        )
+        self.logic_tools = 'logic_tools'
+        self.debug_prompt = False
+        self.code_block = ''
+        self.summary_history = []
+        self.gen_code_terminator = False
+        self.script_results = None
+        self.activity_report = "[MONITOR] No activity data yet"
+        self.monitor_thread = threading.Thread(
+            target=self.activity_monitor_worker,
+            daemon=True
+        )
+        self.monitor_thread.start()
+        self.turn_count = 0
+    def clean_history(self):
+        self.chat.clean_history()
+        
+    def reset_chat(self):
+            self.clean_history()
+            history = self.chat.get_history()  # cleaner, no tool call clutter
+            print(f'new_history= \n {history}')
+
+            summary = groq_caller.call_groq(f'summarize this conversation briefly. ignore anything in relevant memory:\n{history}')
+            #print(f'\n**{summary}**\n')
+            memorymanager.reset_sent()
+            self.chat = OpenAIChatSession(
+                client=client,
+                model=MODEL,
+                system_instruction=build_system_prompt(),
+                history=[
+                    {"role": "user", "content": "[session context]"},
+                    {"role": "assistant", "content": f"Summary of prior conversation:\n{summary}"}
+                ],
+                temperature=1.0,
+                top_p=0.9
+            )
+    
+    def session_saver(self):
+        self.clean_history()
+        history = self.chat.get_history()
+        groq_ses.call_groq(history)
+        self.turn_count = 0
+        self.summary_history = []
+
+    def activity_monitor_worker(self):
+        for (
+                    last_title,
+                    last_proc,
+                    last_path,
+                    last_url,
+                    elapsed,
+                    total,
+                    new_title,
+                    new_proc,
+                    new_path,
+                    new_url
+                ) in monitor.monitor():
+
+            time_now = datetime.datetime.now().strftime("%I:%M %p")
+
+            self.activity_report = f"[MONITOR] {time_now} | was: {last_title} ({last_proc}) {last_path} {last_url}  | +{monitor.format_time(elapsed)} (total {monitor.format_time(total)}) | now: {new_title} ({new_proc}) {new_path}  {new_url} |"
+    
+    def call_logic(self, prompt='something'):
+        is_code = False
+        in_code = False
+        self.code_block = ''
+        ai_reply = ''
+        summary_prompt = ''
+        max_retries = 3
+        delay = 2
+        current_sentence = ''
+        tts_buffer = ''
+        is_text_prompt = isinstance(prompt, str)
+        relevant_memory = ''
+        final_prompt = ''
+        possible_tool = ''
+        user_input = prompt
+        activity_report = self.activity_report
+
+        def speak_current():
+            nonlocal current_sentence
+
+            clean_sentence = re.sub(
+                r'<tool>.*?</tool>',
+                '',
+                current_sentence,
+                flags=re.DOTALL
+            ).strip()
+
+            clean = clean_sentence.replace('*', '').replace('`', '').replace('#', '').strip()
+
+            if clean:
+                speak_async(clean)
+
+            current_sentence = ''
+
+        def process_tts_text(text):
+            nonlocal current_sentence
+
+            if not text:
+                return
+
+            current_sentence += text
+
+            if '<tool>' in current_sentence and '</tool>' in current_sentence:
+                speak_current()
+                return
+
+            inside_tool = (
+                '<tool>' in current_sentence
+                and '</tool>' not in current_sentence
+            )
+
+            if (
+                any(
+                    current_sentence.strip().endswith(p)
+                    for p in [',', '.', '!', '?', '\n']
+                )
+                and not inside_tool
+            ):
+                speak_current()
+
+        if not str(prompt).strip().lower().startswith("system:"):
+            self.summary_history.append(f"User: {prompt}")
+
+        if is_text_prompt and not prompt.startswith('/'):
+            if not prompt.startswith('SCRIPT_RESULT:') and self.turn_count > 1:
+                relevant_memory = memorymanager.search(user_input)
+
+        if relevant_memory:
+            final_prompt = f'relevant_memory:[{relevant_memory}]'
+
+        if activity_report:
+            final_prompt += f'\n{activity_report}'
+
+        if not prompt.startswith("SCRIPT_RESULT:"):
+            possible_tool = guess_tool(f'{final_prompt}\n{prompt}')
+
+        if possible_tool:
+            final_prompt += f'\ntool_reminder:[{possible_tool}]'
+
+        final_prompt += f'\n{prompt}'
+
+        if self.debug_prompt:
+            print(final_prompt)
+
+        for attempt in range(max_retries):
+            try:
+                if isinstance(prompt, list):
+                    response = self.chat.send_message_stream(prompt)
+                else:
+                    response = self.chat.send_message_stream(final_prompt)
+
+                self.turn_count = getattr(self, 'turn_count', 0) + 1
+
+                if self.turn_count >= 15:
+                    self.session_saver()
+
+                for chunk in response:
+                    if not chunk.text:
+                        continue
+
+                    text = chunk.text
+
+                    ai_reply += text
+                    summary_prompt += text
+
+                    yield text
+
+                    tts_buffer += text
+
+                    while True:
+                        fence_index = tts_buffer.find('```')
+
+                        if fence_index == -1:
+                            if len(tts_buffer) > 2:
+                                safe_text = tts_buffer[:-2]
+                                tts_buffer = tts_buffer[-2:]
+
+                                if not in_code:
+                                    process_tts_text(safe_text)
+
+                            break
+
+                        before_fence = tts_buffer[:fence_index]
+                        tts_buffer = tts_buffer[fence_index + 3:]
+
+                        if not in_code:
+                            if before_fence:
+                                process_tts_text(before_fence)
+
+                            speak_current()
+                            in_code = True
+                        else:
+                            in_code = False
+
+                if tts_buffer:
+                    if not in_code:
+                        process_tts_text(tts_buffer)
+
+                    tts_buffer = ''
+
+                if not in_code:
+                    speak_current()
+                else:
+                    current_sentence = ''
+
+                self.summary_history.append(f"Logic: {summary_prompt}")
+                summary_prompt = ''
+
+                if not ai_reply.strip():
+                    print("\n[LOGIC] Empty response received, retrying...")
+                    ai_reply = ''
+                    summary_prompt = ''
+                    current_sentence = ''
+                    tts_buffer = ''
+                    in_code = False
+                    continue
+
+                break
+
+            except OpenAIError as e:
+                print(f"\n{e}\n")
+                is_code = False
+                in_code = False
+                self.code_block = ''
+                ai_reply = ''
+                summary_prompt = ''
+                current_sentence = ''
+                tts_buffer = ''
+
+                if attempt == max_retries - 1:
+                    yield f"\nLOGIC server error after {max_retries} attempts, try again\n"
+                    return
+
+                time.sleep(delay)
+                delay *= 2
+
+        pattern = r'''
+            ```python[ \t]+run[ \t]*\n
+            (.*?)
+            ^[ \t]*```[ \t]*$
+        '''
+
+        match = re.search(
+            pattern,
+            ai_reply,
+            re.DOTALL | re.MULTILINE | re.VERBOSE
+        )
+
+        if match:
+            self.code_block = match.group(1)
+            is_code = True
+
+        if is_text_prompt:
+            if not prompt.startswith('SCRIPT_RESULT:') and not is_code:
+                pass
+
+        tool_handlers = {
+            "check_screen": self.check_screen,
+            "chat_monitor": self.chat_monitor,
+            "save": self.save_script,
+            "search_net": self.search_net,
+            "memory_manager": self.memory_manager,
+            "gui_connector": self.gui_controller,
+            "set_reminder": self.reminder,
+            "dispatch": self.dispatch,
+            "read_skill": self.read_skill,
+            "read_credential": self.read_credential,
+        }
+
+        if not is_code:
+            tool_matches = re.findall(
+                r'<tool>(.*?)</tool>',
+                ai_reply,
+                re.DOTALL
+            )
+
+            for tool_str in tool_matches:
+                try:
+                    tool_data = json.loads(tool_str)
+                    name = tool_data.get("name", "")
+                    args = tool_data.get("args", [])
+
+                    print(f"args going in {args}")
+
+                    handler = tool_handlers.get(name)
+
+                    if handler:
+                        yield from handler(args)
+                    else:
+                        yield from self.run_scripts(tool_data)
+
+                except json.JSONDecodeError:
+                    yield from self.call_logic(
+                        "\n[Error: LOGIC produced malformed JSON tool call]\n"
+                    )
+
+        if is_code:
+            yield from self.run_gen_code(self.code_block)
+            is_code = False
+    def dispatch(self, args):
+        import logic_hall
+        pairs = args if isinstance(args, list) else [args]
+        results = []
+        for pair in pairs:
+            if isinstance(pair, (list, tuple)) and len(pair) >= 2:
+                target, task = str(pair[0]).lower(), pair[1]
+            else:
+                yield from self.call_logic("[dispatch] malformed args, expected [[name, task], ...]")
+                return
+            if target in ("reset", "clear"):
+                who = str(task).lower()
+                targets = list(logic_hall.workers.keys()) if who == "both" else [who]
+                for key in targets:
+                    w_r = logic_hall.workers.get(key)
+                    if w_r is None:
+                        results.append(f"{key}: unknown agent (vinci/sage)")
+                    elif w_r.is_busy():
+                        results.append(f"{key}: BUSY, reset rejected")
+                    else:
+                        w_r.reset_chat()
+                        results.append(f"{key}: context reset")
+                continue
+            w = logic_hall.workers.get(target)
+            if w is None:
+                results.append(f"{target}: unknown agent (vinci/sage)")
+                continue
+            if w.is_busy():
+                results.append(f"{target}: BUSY, task rejected")
+                continue
+            w.dispatch(task, sender="LOGIC")
+            results.append(f"{target}: dispatched")
+        yield from self.call_logic("[dispatch] " + " | ".join(results))
+    
+    def memory_manager(self,args):
+        function_name,text = args[0],args[1]
+        if function_name == 'save':
+            t, f = _parse_flags(text)
+            result = memorymanager.save(t, f.get("memory_type", "semantic"),
+                        f.get("importance", 0.5), f.get("expires_days"))
+            yield from self.call_logic(str(result))
+
+        elif function_name == 'search':
+            t, f = _parse_flags(text)
+            result = memorymanager.search(t, 5, f.get("memory_type"), f.get("min_importance"))
+            memorymanager.reset_sent()
+            yield from self.call_logic("\n".join(result) if isinstance(result, list) else str(result))
+
+        elif function_name == 'delete':
+            yield from self.call_logic(str(memorymanager.delete(text)))
+
+        elif function_name == 'core':
+            r = memorymanager.get_core()
+            yield from self.call_logic("\n".join(r) if r else "No core memories.")
+
+        elif function_name == 'all':
+            yield from self.call_logic("\n".join(memorymanager.show_all()))
+
+        elif function_name == 'stats':
+            yield from self.call_logic("\n".join(memorymanager.stats()))
+
+        elif function_name == 'set':
+            mid, flag_str = text.split(" ", 1)
+            _, f = _parse_flags(flag_str)
+            yield from self.call_logic(str(memorymanager.update(int(mid), f.get("importance"),
+                        f.get("memory_type"), f.get("expires_days"), f.get("never_expires", False))))
+
+        else:
+            yield from self.call_logic("Unknown memory command: " + function_name)
+            
+    def chat_monitor(self,args):
+        target_inbox = args[0]
+        start_monitor(target_inbox)
+        yield f"[Monitor] Connected to {target_inbox}"
+
+    def gui_controller(self, args):
+        parts = args.split(':', 1)
+        args_str = parts[1] if len(parts) > 1 else ""
+        args = [a.strip() for a in args_str.split('|')]
+
+        func = args[0] if args else ""
+        print('\ncontroller invoked')
+        if not hasattr(self, 'gui_control'):
+            self.gui_control = Control()
+
+        if func == 'connect':
+            window_title = args[1] if len(args) > 1 else ""
+            buttons = self.gui_control.connect(window_title)
+            result = f"[GUI] Connected to {window_title}. {len(buttons)} buttons found:\n" + ", ".join(buttons)
+            print(f'\n{result}')
+            yield from self.call_logic(result)
+
+        elif func == 'click':
+            button_name = args[1] if len(args) > 1 else ""
+            click_type = args[2] if len(args) > 2 else "left"
+            success, new_buttons = self.gui_control.click(button_name, click_type)
+            if success:
+                result = f"[GUI] Clicked: {button_name} ({click_type})"
+                if new_buttons:
+                    result += f"\n[GUI] New buttons: " + ", ".join(new_buttons)
+                else:
+                    result += f"\n[GUI] No new buttons"
+            else:
+                result = f"[GUI] Not found: {button_name}"
+            print(f'\n{result}')
+            yield from self.call_logic(result)
+
+        else:
+            yield from self.call_logic(f"[GUI] Unknown function: {func}")
+        
+    def search_net(self,args):
+        from search_net import ask_search_net
+        print('\nsearching the net...')
+        search_quest = args[0]
+
+        search_result = ask_search_net(search_quest)
+        print(f"\nsearch_result:{search_result} ")
+        yield from self.call_logic(f"SCRIPT_RESULT: {search_result}")
+  
+
+    def terminate_gen_code(self):
+        if self.script_results:
+            self.script_results.kill()
+            self.gen_code_terminator = True
+            
+    def run_code_streamed(self, cmd):
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            encoding='utf-8',
+            errors='replace',
+        )
+        self.script_results = proc          # /kill still targets this
+        sink = getattr(self, "_line_sink", None) 
+        lines = []
+        for line in iter(proc.stdout.readline, ''):
+            print(line, end='', flush=True)
+            if sink is not None:                    # ← NEW
+                try:                                # ← NEW
+                    sink(line)                      # ← NEW
+                except Exception:                   # ← NEW
+                    pass                            # ← NEW
+            lines.append(line)
+
+        proc.wait()
+        return ''.join(lines).strip()
+
+
+
+    def run_gen_code(self, code):
+        self.gen_code_terminator = False
+        
+
+
+        with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.py', delete=False, encoding='utf-8'
+        ) as f:
+            f.write(code)
+            temp_path = f.name
+
+        try:
+            from validator import validate
+            output = self.run_code_streamed(['python', '-u', temp_path])
+
+            if not isinstance(output, str):        # safety net if it yields chunks
+                output = "".join(output)
+
+            if self.gen_code_terminator:
+                output = "process terminated by user, standby for further instruction before doing anyting"
+            else:
+                verdict = validate(output)
+                if verdict == "OK":
+                    # script succeeded; give LOGIC the actual output
+                    combined = f"{verdict}\n\nOutput:\n{output}" if output else verdict
+                else:
+                    combined = verdict
+                output = combined
+
+            yield from self.call_logic(f"SCRIPT_RESULT: {output}")
+
+        except Exception as e:
+            print(f"GEN CODE ERROR: {e}", flush=True)
+            yield from self.call_logic(f"SCRIPT_RESULT: Internal runner error: {e}")
+
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+    def reminder(self,args):
+        reminder_text = args[0] if args else "reminder set"
+        minutes = float(args[1] if len(args) > 1 else 1)
+
+
+        def fire():
+            user_input_queue.put(
+                f'system:Reminder FIRED: {reminder_text}'
+            )
+        t = threading.Timer(minutes*60,fire)
+        t.daemon = True
+        t.start()
+
+        yield from self.call_logic(f'Reminder set: {reminder_text} - {minutes} minutes')
+
+    def read_skill(self,args):
+        name = args[0] if isinstance(args,list) else None
+        skill_folder = rf"D:\Ai\logic\logic_skills\{name}"
+        skill_file = next((os.path.join(skill_folder,f) for f in os.listdir(skill_folder) if f.lower()=="skill.md"),None)
+        if not skill_file:
+            yield from self.call_logic(f"SKILL ERROR: skill.md not found for {name}")
+            return
+        skill_data = open(skill_file,encoding="utf-8").read()
+        yield from self.call_logic(f"SKILL:{skill_data}")
+
+    def check_screen(self, args):
+        global history
+        import pygame as pg
+        from PIL import ImageGrab
+
+        pg.mixer.init()
+        ss = pg.mixer.Sound('screenshot.wav')
+        ss.play()
+        question = 'explain this image in detail KEEP IT SHORT AND ACCURATE'
+        if args and len(args[0].strip()) > 1:
+            question = args[0]
+        
+        screenshot = ImageGrab.grab()
+        
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
+            image_path = temp_file.name
+            screenshot.save(image_path)
+        
+        print('screen_shot_taken:', image_path)
+        
+        try:
+            from deepwrap import Client
+            chat = Client().chats.create_session(model="vision")
+            buf = []
+            for chunk in chat.respond(question, files=[image_path], stream=True, thinking=False):
+                buf.append(chunk)
+            result = "".join(buf)
+            yield from self.call_logic(f"SCRIPT_RESULT:{result}")
+        finally:
+            if os.path.exists(image_path):
+                os.remove(image_path)
+
+    def read_credential(self, args):
+        """Internal tool to retrieve credential/token data strictly from oauth_token_files."""
+        name = args[0] if isinstance(args, list) and len(args) > 0 else str(args)
+        candidate = name if name.endswith(".json") else f"{name}.json"
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        token_dir = os.path.join(base_dir, "logic_tools", "oauth_token_files")
+        target_path = os.path.join(token_dir, candidate)
+
+        if not os.path.exists(target_path):
+            import difflib
+            json_files = [f for f in os.listdir(token_dir) if f.endswith(".json")] if os.path.exists(token_dir) else []
+            matches = difflib.get_close_matches(candidate, json_files, n=1, cutoff=0.6)
+            if matches:
+                target_path = os.path.join(token_dir, matches[0])
+            else:
+                yield from self.call_logic(f"SCRIPT_RESULT: Error: Credential file '{name}' not found in oauth_token_files.")
+                return
+
+        try:
+            with open(target_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            yield from self.call_logic(f"SCRIPT_RESULT: {json.dumps(data, indent=2)}")
+        except Exception as e:
+            yield from self.call_logic(f"SCRIPT_RESULT: Error reading credential '{name}': {e}")
+
+    def save_script(self, file_name):
+        name = file_name[0]
+        code = self.code_block
+        with open(f'logic_tools/{name}', 'w', encoding='utf-8') as f:
+            f.write(code)
+        self.code_block = ''
+        yield f"\nSaved as {name}.\n"  
+    
+    def run_scripts(self, tool_data):
+
+            script_name = tool_data.get("name", "").strip()
+            args = tool_data.get("args", [])
+
+            if isinstance(args, list) and len(args) > 0 and isinstance(args[0], (list, dict)):
+                string_args = [json.dumps(args)]
+            elif isinstance(args, str):
+                string_args = [args]
+            else:
+                string_args = [str(arg) for arg in args]
+
+            path = f'{self.logic_tools}/{script_name}'
+
+            if not os.path.exists(path):
+                yield from self.call_logic(f"SCRIPT_RESULT: Error. Script '{script_name}' not found.")
+                return
+
+            output = self.run_code_streamed(['python', '-u', path] + string_args)
+
+            if not isinstance(output, str):        # in case it yields chunks instead of returning
+                output = "".join(output)
+
+            if not output:
+                output = "(no output)"
+
+
+            
+            yield from self.call_logic(f"SCRIPT_RESULT: {output}\n.")
+
+
+class groq_ai():
+    def __init__(self):
+        import groq
+        self.client = groq.Groq(api_key=GROQ_API_KEY)
+        self.chat_history = [
+            {
+                "role": "system",
+                "content": rf"""
+                
+                you are a history compactor agent, you 
+                summerize history chats given to you and do nothing else. 
+                you write in plain text when writting summary.
+                no explanation or anything. 
+                ignore anything you see inside relevant_memory:[memory]. do not add them in summary
+ 
+                """
+            }
+        ]
+        self.code_block = ''
+    def get_time(self):
+        now = datetime.datetime.now()
+        print(now.strftime("%I:%M %p %B %d, %Y"))
+        
+    def call_groq(self,prompt):
+        try:
+            is_code = False
+            self.chat_history.append({
+                "role": "user",
+                "content": str(prompt)
+            })
+
+            response = self.client.chat.completions.create(
+                        model=MODEL_NAME_GROQ,
+                        messages=self.chat_history,
+                        temperature=0.7,
+                        reasoning_effort='low'
+                    )
+        
+            ai_reply = response.choices[0].message.content
+
+            if '```' in ai_reply:
+                print('...generating code ')
+                self.code_block = ''
+                parts = ai_reply.split('```')
+                for part in parts:
+                    if part.startswith('python'):
+                        code = part
+                        if '\n' in code:
+                            code = code[code.index('\n')+1:]
+                        self.code_block = code
+                        is_code = True
+                        break
+            self.chat_history = [self.chat_history[0]]
+            
+            print(f'groq-reply:\n {ai_reply}')
+            
+            if 'run_script|' in ai_reply:
+                summary_text = ai_reply.split('run_script|', 1)[1].strip()
+                self.save_session(f"summary_text\n{self.get_time()}")
+                print('Summary saved to file.')
+                return None
+
+            if is_code:
+                return self.code_block
+            else:
+                return ai_reply
+            
+        except Exception as e:
+            print('too big for normal groq\nusing Omniroute default model')
+            self.fallback_summarize(prompt)
+
+    def fallback_summarize(self, prompt):
+        try:
+            fallback_session = OpenAIChatSession(
+                client=client,
+                model=MODEL,
+                system_instruction="""
+    You are a conversation history summarizer.
+
+    Your ONLY job is to summarize the provided conversation history.
+
+    Return ONLY the summary in plain text.
+    Do not answer the conversation.
+    Do not execute tools.
+    Do not generate code.
+    Do not continue the conversation.
+    """,
+                temperature=0.7,
+                top_p=0.9
+            )
+
+            response = fallback_session.send_message_stream(
+                f"Summarize this conversation:\n{prompt}"
+            )
+
+            summary = ''.join(
+                chunk.text
+                for chunk in response
+                if chunk.text
+            ).strip()
+
+            if not summary:
+                raise RuntimeError("Fallback returned an empty summary.")
+
+
+            print("[Fallback] Summary given successfully.")
+            print("\n"+summary)
+            return summary
+
+        except Exception as e:
+            print(f"[Fallback] Summary failed: {e}")
+            return None
+    
+
+class Groq_session_ai():
+    def __init__(self):
+        import groq
+        self.client = groq.Groq(api_key=GROQ_API_KEY)
+        self.chat_history = [
+            {
+                "role": "system",
+                "content": rf"""
+
+                you are a coding and history compactor agent, you write code and save 
+                summerize history chats given to you.
+                you write in plain text when writting summary. and only write in code block when asked to code something
+                no explanation or anything. 
+                ignore anything you see inside relevant_memory:[memory]. do not add them in summary
+                all of your code ar written inside a code block. 
+
+                <Scripts>
+                to save a summary write, run_script|[summary]
+                the script would automatically save the summary in a txt file
+
+                </Scripts>
+                """
+            }
+        ]
+        self.code_block = ''
+    def save_session(self, text):
+        with open("D:/Ai/logic/memory/summaries/summaries.txt", "w", encoding="utf-8") as f:
+            f.write(text + "\n\n")
+
+
+    def fallback_summarize(self, prompt):
+        try:
+            fallback_session = OpenAIChatSession(
+                client=client,
+                model=MODEL,
+                system_instruction="""
+    You are a conversation history summarizer.
+
+    Your ONLY job is to summarize the provided conversation history.
+
+    Return ONLY the summary in plain text.
+    Do not answer the conversation.
+    Do not execute tools.
+    Do not generate code.
+    Do not continue the conversation.
+    """,
+                temperature=0.7,
+                top_p=0.9
+            )
+
+            response = fallback_session.send_message_stream(
+                f"Summarize this conversation:\n{prompt}"
+            )
+
+            summary = ''.join(
+                chunk.text
+                for chunk in response
+                if chunk.text
+            ).strip()
+
+            if not summary:
+                raise RuntimeError("Fallback returned an empty summary.")
+
+            self.save_session(summary)
+
+            print("[Fallback] Summary saved successfully.")
+
+            return summary
+
+        except Exception as e:
+            print(f"[Fallback] Summary failed: {e}")
+            return None
+    
+
+    def get_current_formatted_time(self):
+        from datetime import datetime
+        return datetime.now().strftime('%I:%M %p, %B %d, %Y')
+
+    def call_groq(self,prompt):
+        is_code = False
+        #print(f"prompt given to groq\n {prompt}")
+        self.chat_history.append({
+            "role": "user",
+            "content": str(prompt)
+        })
+
+        try:
+            response = self.client.chat.completions.create(
+                model=MODEL_NAME_GROQ,
+                messages=self.chat_history,
+                temperature=0.7,
+                reasoning_effort='low'
+            )
+
+            ai_reply = response.choices[0].message.content
+
+        except Exception as e:
+            print(f"\n[Groq ERROR] {e}")
+
+            summary = self.fallback_summarize(prompt)
+
+            self.chat_history = [self.chat_history[0]]
+
+            return summary
+
+        if '```' in ai_reply:
+            print('...generating code ')
+            self.code_block = ''
+            parts = ai_reply.split('```')
+            for part in parts:
+                if part.startswith('python'):
+                    code = part
+                    if '\n' in code:
+                        code = code[code.index('\n')+1:]
+                    self.code_block = code
+                    is_code = True
+                    break
+                
+        self.chat_history = [self.chat_history[0]]
+        print(f'groq-reply:\n {ai_reply}')
+
+
+        if 'run_script|' in ai_reply:
+            summary_text = ai_reply.split('run_script|', 1)[1].strip()
+            summary_with_time = f'{summary_text} \n - {self.get_current_formatted_time()} '
+            self.save_session(summary_with_time)
+            
+            print('Summary saved to file.')
+            return None
+
+        if is_code:
+            return self.code_block
+        else:
+            return ai_reply
+    
+
+
+groq_ses = Groq_session_ai()
+
+groq_caller = groq_ai()
+
+logic_ai = Base_AI()
+os.system('cls')
+
+
+
+
+import datetime
+
+
+def get_local_day_schedule():
+    from googleapiclient.discovery import build
+    from google.oauth2.credentials import Credentials
+    try:
+        creds = Credentials.from_authorized_user_file(r'D:\Ai\logic\logic_tools\oauth_token_files\google_oauth.json')
+        service = build('calendar', 'v3', credentials=creds)
+        
+        local_tz = datetime.timezone(datetime.timedelta(hours=6))
+        local_now = datetime.datetime.now(local_tz)
+        
+        DAY_START_HOUR = 4 
+        
+        if local_now.hour < DAY_START_HOUR:
+            start_of_day = (local_now - datetime.timedelta(days=1)).replace(hour=DAY_START_HOUR, minute=0, second=0, microsecond=0)
+        else:
+            start_of_day = local_now.replace(hour=DAY_START_HOUR, minute=0, second=0, microsecond=0)
+            
+        end_of_day = start_of_day + datetime.timedelta(days=1, seconds=-1)
+        
+        events_result = service.events().list(calendarId='primary', 
+                                              timeMin=start_of_day.isoformat(), 
+                                              timeMax=end_of_day.isoformat(), 
+                                              singleEvents=True,
+                                              orderBy='startTime').execute()
+        events = events_result.get('items', [])
+        
+        if not events:
+            return "Your schedule is empty for this cycle."
+        
+        past_events = []
+        future_events = []
+        
+        for event in events:
+            if 'date' in event['start'] and 'dateTime' not in event['start']:
+                start_date = event['start'].get('date')
+                sd = datetime.datetime.fromisoformat(start_date).replace(tzinfo=local_tz)
+                
+                # All-day event: consider it "done" only when the day is fully over
+                # (i.e., local_now is past the end of that day)
+                end_of_event_day = sd + datetime.timedelta(days=1)
+                
+                line = f"- All day ({sd.strftime('%B %d')}): {event['summary']}\n"
+                if local_now >= end_of_event_day:
+                    past_events.append(line)
+                else:
+                    future_events.append(line)
+                    
+            else:
+                start_raw = event['start'].get('dateTime', event['start'].get('date'))
+                end_raw = event['end'].get('dateTime', event['end'].get('date'))
+                try:
+                    start_dt = datetime.datetime.fromisoformat(start_raw).astimezone(local_tz)
+                    end_dt = datetime.datetime.fromisoformat(end_raw).astimezone(local_tz)
+                    
+                    start_str = start_dt.strftime('%I:%M %p')
+                    end_str = end_dt.strftime('%I:%M %p')
+                    
+                    line = f"- {start_str} to {end_str} ({start_dt.strftime('%B %d')}): {event['summary']}\n"
+                    
+                    if start_dt < local_now:
+                        past_events.append(line)
+                    else:
+                        future_events.append(line)
+                except Exception:
+                    future_events.append(f"- {start_raw} to {end_raw}: {event['summary']}\n")
+        
+        schedule = f"Schedule for {start_of_day.date()}:\n"
+        
+        if future_events:
+            schedule += "\nUpcoming:\n" + "".join(future_events)
+        else:
+            schedule += "\nNothing upcoming.\n"
+            
+        if past_events:
+            schedule += "\nAlready done:\n" + "".join(past_events)
+            
+        local_time_str = local_now.strftime("%I:%M %p")
+        local_date_str = local_now.strftime("%B %d, %Y")
+        return f"{schedule}\nCurrent Local Time: {local_time_str}\nDate: {local_date_str}"
+    except Exception as e:
+        return f"Error retrieving local schedule: {e}"
+
+#print(get_local_day_schedule())
+
+voice_mode = False  # start in text mode
+
+def terminal_code(code):
+    global voice_mode
+    if code == '/compact':
+        logic_ai.reset_chat()
+
+    elif code == '/v':
+        voice_mode = not voice_mode
+        print(f'[Voice mode {voice_mode}]')
+
+    elif code.startswith('/stop'):
+        import logic_hall
+        target = code.split(' ', 1)[1].strip().lower() if ' ' in code else ''
+        if target not in ('vinci', 'sage', 'both'):
+            print('[usage] stop vinci | stop sage | stop both')
+        else:
+            targets = logic_hall.workers.keys() if target == 'both' else [target]
+            for key in targets:
+                w = logic_hall.workers.get(key)
+                if w is None:
+                    print(f'[{key}] not initialized')
+                elif w.stop():
+                    print(f'[{w.name}] stop signal sent')
+                else:
+                    print(f'[{w.name}] not busy, nothing to stop')
+
+    elif code == '/hall':
+        import logic_hall
+        if not logic_hall.workers:
+            print('[hall] not initialized')
+        for key, w in logic_hall.workers.items():
+            pending, done = w.poll()
+            print(f"[{w.name}] {'BUSY' if w.is_busy() else 'idle'}")
+            for d in done:
+                print(f"  last: {d}")
+            if pending:
+                print(f"  {len(pending)} unread lines in TUI buffer")
+
+    elif code == '/chat off':
+        stop_monitor()
+    elif code == '/save':
+        logic_ai.session_saver()        
+    elif code == '/debug':
+        logic_ai.debug_prompt = not logic_ai.debug_prompt
+        print(f'debugger is {logic_ai.debug_prompt}')
+    elif code == '/kill':
+        logic_ai.gen_code_terminator = True
+        logic_ai.terminate_gen_code()
+        print("kill triggered")
+
+    elif code.startswith('/model'):
+
+        try:
+            model_name = code.split('/model')[1]
+            new_history = logic_ai.chat.history
+            logic_ai.chat = OpenAIChatSession(
+                        client=client,
+                        model=model_name,
+                        system_instruction=build_system_prompt(),
+                        history=new_history,
+                        temperature=1.0,
+                        top_p=0.9,
+                    
+                    )
+
+
+        except Exception as e:
+            pass
+    elif code == '/overlay':
+
+        logic_voice.enable_overlay = not logic_voice.enable_overlay
+        print(f"overlay {logic_voice.enable_overlay}")
+        
+    elif code.startswith('/reload'):
+        try:
+            library = code.split('/reload')[1]
+            print(f'reloading...{library}')
+            importlib.reload(library)
+        except Exception as e:
+            print(f'something went wrong {e}')
+    else:
+        print('\nCode invalid')
+
+user_input_queue = queue.Queue()
+monitor_bot = None
+
+import logic_hall
+logic_hall.init_hall(user_input_queue)
+
+def start_monitor(name):
+    from messenger_chat_monitor import MessengerBot
+    global monitor_bot
+    if monitor_bot is not None:
+        print("[Monitor] Already running")
+        return
+    monitor_bot = MessengerBot()
+    monitor_bot.start(name)
+    print(f"[Monitor] Started watching {name}")
+
+def stop_monitor():
+    global monitor_bot
+    if monitor_bot:
+        monitor_bot.stop()
+        monitor_bot = None
+        print("[Monitor] Stopped")
+
+
+color_reply = Style(color="#328BFF", bold=True)
+color_sep = Style(color="#75716C", dim=True)
+color_user = Style(color="#619FAF")
+color_label = Style(color="#619FAF")
+
+#prompt_ready = threading.Event()
+
+def input_thread():
+    while True:
+        text = input()
+
+        # Go back to the line where input() displayed the text
+        sys.stdout.write("\033[1A\r\033[2K")
+        sys.stdout.flush()
+
+        # Replace that line
+        the_console.print(
+            f"YOU: {text}",
+            style=color_user,
+            highlight=False
+        )
+
+        if text == "/kill":
+            logic_ai.terminate_gen_code()
+            print("[Kill triggered]")
+            continue
+
+        user_input_queue.put(text)
+
+def load_last_summary(file_path="D:/Ai/logic/memory/summaries/summaries.txt"):
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return "No prior conversation."
+
+
+
+    
+if __name__ == "__main__":
+    
+    the_console.print("LOGIC: ", style=color_reply, end="", highlight=False)
+    
+    for chunk in logic_ai.call_logic(
+    f"system: user is Online. Greet briefly. If schedule matches previous summary, ask about user's current activity or mood instead. Do not reference schedule items already known. Previous: {load_last_summary()}\nSchedule: {get_local_day_schedule()}"
+    ):
+        the_console.print(chunk, style=color_reply, end="", highlight=False, markup=False)
+    print('')
+    
+
+    threading.Thread(target=input_thread, daemon=True).start()
+    #prompt_ready.set()
+    
+    while True:
+        prompt = None
+
+        # Check injection first
+        if monitor_bot is not None:
+            injected = monitor_bot.get_injection()
+            if injected:
+                prompt = f"system: [Messenger] Msg returned, send reply via  send_message_to_messenger.py directly, don't ask. Chat context:\n{injected}"
+                print(f'\n[INJECTED] {prompt}')  
+
+        if voice_mode:
+            prompt = get_voice()
+            if prompt is not None:
+                print(prompt)
+
+        if prompt is None:
+            try:
+                prompt = user_input_queue.get_nowait()
+
+            except queue.Empty:
+                pass
+
+        if prompt is None:
+            time.sleep(0.1)
+            continue
+
+        if prompt.startswith('/'):
+            terminal_code(prompt)
+            #prompt_ready.set()
+            continue
+
+        if prompt.lower() == 'exit':
+            break
+
+        logic_ai.user_prompt = prompt
+        
+        stop_voice()
+
+        reply = logic_ai.call_logic(prompt)
+        
+        sys.stdout.write("\r\033[K")  #* clear current line
+        sys.stdout.flush()
+
+        
+
+        the_console.print("─" * 40, style=color_sep, highlight=False)
+        the_console.print("LOGIC: ", style=color_reply, end="", highlight=False)
+
+        for chunk in reply:
+            the_console.print(chunk, style=color_reply, end="", highlight=False, markup=False)
+
+        print()
+
+

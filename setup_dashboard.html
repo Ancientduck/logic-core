@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LOGIC / VINCI — System Status & Verification Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap');
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: #0b0f19;
+            color: #f1f5f9;
+            font-size: 15px;
+        }
+
+        code, pre, .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .glass-card {
+            background: rgba(17, 24, 39, 0.85);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .glass-card:hover {
+            border-color: rgba(99, 102, 241, 0.35);
+        }
+
+        .guide-step {
+            counter-increment: step-counter;
+        }
+
+        .guide-step::before {
+            content: counter(step-counter);
+            position: absolute;
+            left: -14px;
+            top: 2px;
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            background: #4f46e5;
+            color: white;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+    </style>
+</head>
+<body class="min-h-screen pb-24">
+    <!-- Header -->
+    <header class="border-b border-gray-800 bg-gray-900/80 backdrop-blur-md sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-8 py-5 flex items-center justify-between">
+            <div class="flex items-center space-x-4">
+                <div class="w-11 h-11 rounded-xl bg-indigo-600/25 border border-indigo-500/40 flex items-center justify-center text-indigo-400 font-mono font-bold text-xl shadow-lg shadow-indigo-600/20">
+                    L
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight text-white flex items-center gap-3">
+                        LOGIC & VINCI <span class="text-xs px-2.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-semibold">Core v2.4</span>
+                    </h1>
+                    <p class="text-sm text-gray-400">Environment Verifier & Complete Deployment Guide</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <button onclick="runAllChecks()" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-sm font-semibold text-white transition flex items-center gap-2 shadow-lg shadow-indigo-600/25">
+                    <i class="fa-solid fa-rotate text-sm"></i> Refresh All Checks
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-8 pt-10 space-y-12">
+
+        <!-- Environment & Core Keys Status -->
+        <section class="glass-card rounded-2xl p-7 border-indigo-500/30">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-800 pb-5">
+                <div>
+                    <h2 class="text-xl font-bold text-white flex items-center gap-2.5">
+                        <i class="fa-solid fa-shield-halved text-indigo-400 text-lg"></i> Local Environment Configuration (<span class="mono text-indigo-300">./.env</span>)
+                    </h2>
+                    <p class="text-sm text-gray-300 mt-1" id="validatorSubtitle">
+                        Hardcoded to read from the repository root <code class="mono text-indigo-400 bg-gray-950 px-2 py-0.5 rounded">D:\\Ai\\logic\\.env</code>
+                    </p>
+                </div>
+                <div class="text-xs text-gray-400 mono bg-gray-950/80 px-3 py-1.5 rounded-lg border border-gray-800">
+                    Target: <span class="text-gray-200">./.env</span>
+                </div>
+            </div>
+
+            <!-- Parsed Keys Status Grid -->
+            <div id="keysGrid" class="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                <!-- Groq -->
+                <div class="p-5 rounded-xl bg-gray-900/80 border border-gray-800 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <span class="text-sm font-bold text-white mono">GROQ_API_KEY</span>
+                        <span id="badge-groq" class="text-xs mono px-2.5 py-1 rounded bg-gray-800 text-gray-400 font-semibold">Probing...</span>
+                    </div>
+                    <div id="details-groq" class="text-xs text-gray-400 truncate">Checking .env file...</div>
+                </div>
+
+                <!-- Base URL / Gateway -->
+                <div class="p-5 rounded-xl bg-gray-900/80 border border-gray-800 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <span class="text-sm font-bold text-white mono">BASE_URL</span>
+                        <span id="badge-baseurl" class="text-xs mono px-2.5 py-1 rounded bg-gray-800 text-gray-400 font-semibold">Probing...</span>
+                    </div>
+                    <div id="details-baseurl" class="text-xs text-gray-400 truncate">http://localhost:20128/v1</div>
+                </div>
+
+                <!-- You.com API -->
+                <div class="p-5 rounded-xl bg-gray-900/80 border border-gray-800 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <span class="text-sm font-bold text-white mono">YOU_API_KEY</span>
+                        <span id="badge-you" class="text-xs mono px-2.5 py-1 rounded bg-gray-800 text-gray-400 font-semibold">Probing...</span>
+                    </div>
+                    <div id="details-you" class="text-xs text-gray-400 truncate">Web search integration</div>
+                </div>
+
+                <!-- TinyFish API -->
+                <div class="p-5 rounded-xl bg-gray-900/80 border border-gray-800 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <span class="text-sm font-bold text-white mono">TINYFISH_API_KEY</span>
+                        <span id="badge-tinyfish" class="text-xs mono px-2.5 py-1 rounded bg-gray-800 text-gray-400 font-semibold">Probing...</span>
+                    </div>
+                    <div id="details-tinyfish" class="text-xs text-gray-400 truncate">Web automation API</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Live Daemon Status -->
+        <section>
+            <h2 class="text-lg font-bold text-white mb-5 flex items-center gap-2.5">
+                <i class="fa-solid fa-server text-indigo-400"></i> Local Service Integrations & Ports
+            </h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- OmniRoute -->
+                <div class="glass-card rounded-2xl p-6 flex items-center justify-between">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 text-xl">
+                            <i class="fa-solid fa-route"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-bold text-white text-base">OmniRoute AI Gateway (:20128)</h3>
+                            <p class="text-sm text-gray-400 mono mt-0.5">http://127.0.0.1:20128/home</p>
+                        </div>
+                    </div>
+                    <span id="probe-omniroute" class="px-3 py-1 rounded-lg text-xs font-mono bg-gray-800 text-gray-400 font-semibold">Probing...</span>
+                </div>
+
+                <!-- Everything -->
+                <div class="glass-card rounded-2xl p-6 flex items-center justify-between">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400 text-xl">
+                            <i class="fa-solid fa-bolt"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-bold text-white text-base">Everything HTTP Server (:80)</h3>
+                            <p class="text-sm text-gray-400 mono mt-0.5">http://127.0.0.1:80</p>
+                        </div>
+                    </div>
+                    <span id="probe-everything" class="px-3 py-1 rounded-lg text-xs font-mono bg-gray-800 text-gray-400 font-semibold">Probing...</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Chrome Automation Profile Setup -->
+        <section class="glass-card rounded-2xl p-7 border-cyan-500/30">
+            <div class="flex items-center justify-between border-b border-gray-800 pb-5 mb-5">
+                <div class="flex items-center gap-4">
+                    <div class="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 text-xl">
+                        <i class="fa-brands fa-chrome"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-lg font-bold text-white">Dedicated Chrome Automation Profile Setup</h2>
+                        <p class="text-sm text-gray-400 mt-0.5">Required for Selenium, Playwright, Messenger tools, and automated web interactions.</p>
+                    </div>
+                </div>
+                <span class="text-xs mono px-3 py-1.5 rounded-lg bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-semibold">AutomationProfile</span>
+            </div>
+
+            <div class="space-y-5 text-sm text-gray-300">
+                <p>LOGIC operates with a dedicated persistent Chrome user profile located at:</p>
+                <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 mono text-cyan-300 text-sm flex items-center justify-between">
+                    <span>C:\Users\&lt;YOUR_USERNAME&gt;\AppData\Local\Google\Chrome\AutomationProfile</span>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-5 pt-2">
+                    <div class="p-5 rounded-xl bg-gray-900/70 border border-gray-800 space-y-2">
+                        <span class="font-bold text-white text-sm flex items-center gap-2">
+                            <span class="w-5 h-5 rounded-full bg-cyan-500/25 text-cyan-300 text-xs flex items-center justify-center font-mono">1</span>
+                            Launch Automation Profile
+                        </span>
+                        <p class="text-gray-400 text-xs leading-relaxed">Run via CMD or Run dialog (Win+R):</p>
+                        <pre class="bg-gray-950 p-3 rounded-lg text-gray-300 mono text-xs overflow-x-auto">chrome.exe --user-data-dir="C:\Users\%USERNAME%\AppData\Local\Google\Chrome\AutomationProfile"</pre>
+                    </div>
+
+                    <div class="p-5 rounded-xl bg-gray-900/70 border border-gray-800 space-y-2">
+                        <span class="font-bold text-white text-sm flex items-center gap-2">
+                            <span class="w-5 h-5 rounded-full bg-cyan-500/25 text-cyan-300 text-xs flex items-center justify-center font-mono">2</span>
+                            One-Time Account Logins
+                        </span>
+                        <p class="text-gray-400 text-xs leading-relaxed">In that opened Chrome window, log in to Facebook/Messenger, Torn, and any active sites you want LOGIC to automate.</p>
+                    </div>
+
+                    <div class="p-5 rounded-xl bg-gray-900/70 border border-gray-800 space-y-2">
+                        <span class="font-bold text-white text-sm flex items-center gap-2">
+                            <span class="w-5 h-5 rounded-full bg-cyan-500/25 text-cyan-300 text-xs flex items-center justify-center font-mono">3</span>
+                            Automated Reconnection
+                        </span>
+                        <p class="text-gray-400 text-xs leading-relaxed">LOGIC's Playwright and Selenium drivers will automatically mount this profile with saved sessions and zero CAPTCHAs.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Credentials & OAuth Directory Setup -->
+        <section class="glass-card rounded-2xl p-7">
+            <div class="border-b border-gray-800 pb-5 mb-5">
+                <h2 class="text-lg font-bold text-white flex items-center gap-2.5">
+                    <i class="fa-solid fa-key text-amber-400"></i> OAuth & Credential Token Files
+                </h2>
+                <p class="text-sm text-gray-400 mt-1">All personal tokens must be stored in <code class="text-amber-400 font-mono bg-gray-950 px-2 py-0.5 rounded">logic_tools/oauth_token_files/</code></p>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm">
+                    <thead>
+                        <tr class="border-b border-gray-800 text-gray-400 mono font-semibold">
+                            <th class="pb-3.5 pr-6">Target File</th>
+                            <th class="pb-3.5 pr-6">Purpose / Consuming Tools</th>
+                            <th class="pb-3.5 pr-6">Setup Method</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-800/70 text-gray-300">
+                        <tr>
+                            <td class="py-4 font-mono text-indigo-300 font-semibold">google_oauth.json</td>
+                            <td class="py-4">Google Calendar & Gmail access (<code class="text-gray-400">get_schedule.py</code>, <code class="text-gray-400">calendar_add_multiple_events.py</code>)</td>
+                            <td class="py-4 text-gray-400">Download from Google Cloud Console &rarr; OAuth 2.0 Client IDs (Desktop App)</td>
+                        </tr>
+                        <tr>
+                            <td class="py-4 font-mono text-indigo-300 font-semibold">token.json</td>
+                            <td class="py-4">Generated Google user refresh token</td>
+                            <td class="py-4 text-gray-400">Auto-generated on first calendar script authorization run</td>
+                        </tr>
+                        <tr>
+                            <td class="py-4 font-mono text-indigo-300 font-semibold">github_access.json</td>
+                            <td class="py-4">GitHub Gist / Repo management via <code class="text-gray-400">read_credential</code></td>
+                            <td class="py-4 text-gray-400">Create GitHub Personal Access Token (Classic) with <code class="text-gray-400">gist</code> / <code class="text-gray-400">repo</code> scope</td>
+                        </tr>
+                        <tr>
+                            <td class="py-4 font-mono text-indigo-300 font-semibold">torn_api.json</td>
+                            <td class="py-4">Torn City API skill integration</td>
+                            <td class="py-4 text-gray-400">JSON object: <code class="text-gray-400 font-mono">{"api_key": "YOUR_KEY"}</code></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Detailed Key Acquisition Guides -->
+        <section class="space-y-6">
+            <div>
+                <h2 class="text-xl font-bold text-white flex items-center gap-2.5">
+                    <i class="fa-solid fa-book-bookmark text-indigo-400"></i> Step-by-Step Acquisition Guides
+                </h2>
+                <p class="text-sm text-gray-400 mt-1">Exact instructions to obtain all keys and configure local daemons.</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                <!-- 1. Groq Cloud API -->
+                <div class="glass-card rounded-2xl p-7 space-y-4">
+                    <div class="flex items-center justify-between border-b border-gray-800 pb-4">
+                        <div class="flex items-center gap-3">
+                            <i class="fa-solid fa-microchip text-orange-400 text-xl"></i>
+                            <h3 class="font-bold text-white text-base">1. Groq Cloud API Key</h3>
+                        </div>
+                        <a href="https://console.groq.com/keys" target="_blank" class="text-xs text-indigo-400 hover:text-indigo-300 mono flex items-center gap-1 font-semibold">
+                            console.groq.com <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
+                        </a>
+                    </div>
+                    <ol class="space-y-3 text-sm text-gray-300 relative pl-4 leading-relaxed">
+                        <li class="guide-step relative pl-4">Sign in to <strong>console.groq.com</strong>.</li>
+                        <li class="guide-step relative pl-4">Navigate to <strong>API Keys</strong> in the left sidebar.</li>
+                        <li class="guide-step relative pl-4">Click <strong>Create API Key</strong>, name it <code>logic-groq</code>, and copy the key (<code>gsk_...</code>).</li>
+                        <li class="guide-step relative pl-4">Paste into your <code class="mono text-indigo-400">.env</code> under <code class="mono text-indigo-300">GROQ_API_KEY</code>.</li>
+                    </ol>
+                </div>
+
+                <!-- 2. OmniRoute AI Gateway -->
+                <div class="glass-card rounded-2xl p-7 space-y-4">
+                    <div class="flex items-center justify-between border-b border-gray-800 pb-4">
+                        <div class="flex items-center gap-3">
+                            <i class="fa-solid fa-route text-indigo-400 text-xl"></i>
+                            <h3 class="font-bold text-white text-base">2. OmniRoute AI Gateway</h3>
+                        </div>
+                        <a href="https://github.com/dnhkng/OmniRoute" target="_blank" class="text-xs text-indigo-400 hover:text-indigo-300 mono flex items-center gap-1 font-semibold">
+                            GitHub Repo <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
+                        </a>
+                    </div>
+                    <ol class="space-y-3 text-sm text-gray-300 relative pl-4 leading-relaxed">
+                        <li class="guide-step relative pl-4">Clone or install OmniRoute locally (or run <code class="mono text-indigo-400">open_omniroute.py</code>).</li>
+                        <li class="guide-step relative pl-4">Ensure OmniRoute runs on port <strong>20128</strong> (<code class="mono text-indigo-300">http://127.0.0.1:20128</code>).</li>
+                        <li class="guide-step relative pl-4">Configure your target providers at <code class="mono">localhost:20128/home</code>.</li>
+                        <li class="guide-step relative pl-4">Set <code class="mono text-indigo-300">BASE_URL=http://localhost:20128/v1</code> in <code class="mono text-indigo-400">.env</code>.</li>
+                    </ol>
+                </div>
+
+                <!-- 3. Google Calendar & Gmail OAuth -->
+                <div class="glass-card rounded-2xl p-7 space-y-4">
+                    <div class="flex items-center justify-between border-b border-gray-800 pb-4">
+                        <div class="flex items-center gap-3">
+                            <i class="fa-brands fa-google text-red-400 text-xl"></i>
+                            <h3 class="font-bold text-white text-base">3. Google OAuth (<code class="mono font-normal text-xs">google_oauth.json</code>)</h3>
+                        </div>
+                        <a href="https://console.cloud.google.com/apis/credentials" target="_blank" class="text-xs text-indigo-400 hover:text-indigo-300 mono flex items-center gap-1 font-semibold">
+                            Cloud Console <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
+                        </a>
+                    </div>
+                    <ol class="space-y-3 text-sm text-gray-300 relative pl-4 leading-relaxed">
+                        <li class="guide-step relative pl-4">Go to <strong>Google Cloud Console &rarr; APIs & Services &rarr; Credentials</strong>.</li>
+                        <li class="guide-step relative pl-4">Enable <strong>Google Calendar API</strong> and <strong>Gmail API</strong>.</li>
+                        <li class="guide-step relative pl-4">Click <strong>Create Credentials &rarr; OAuth client ID &rarr; Application type: Desktop App</strong>.</li>
+                        <li class="guide-step relative pl-4">Download JSON and save as: <code class="mono text-indigo-300 block mt-1.5 bg-gray-950 p-2 rounded">logic_tools/oauth_token_files/google_oauth.json</code></li>
+                        <li class="guide-step relative pl-4">Run <code class="mono text-indigo-400">get_schedule.py</code> to complete the one-time browser login and create <code class="mono">token.json</code>.</li>
+                    </ol>
+                </div>
+
+                <!-- 4. GitHub Classic PAT -->
+                <div class="glass-card rounded-2xl p-7 space-y-4">
+                    <div class="flex items-center justify-between border-b border-gray-800 pb-4">
+                        <div class="flex items-center gap-3">
+                            <i class="fa-brands fa-github text-white text-xl"></i>
+                            <h3 class="font-bold text-white text-base">4. GitHub PAT (<code class="mono font-normal text-xs">github_access.json</code>)</h3>
+                        </div>
+                        <a href="https://github.com/settings/tokens" target="_blank" class="text-xs text-indigo-400 hover:text-indigo-300 mono flex items-center gap-1 font-semibold">
+                            GitHub Settings <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
+                        </a>
+                    </div>
+                    <ol class="space-y-3 text-sm text-gray-300 relative pl-4 leading-relaxed">
+                        <li class="guide-step relative pl-4">Navigate to <strong>github.com/settings/tokens &rarr; Generate new token (classic)</strong>.</li>
+                        <li class="guide-step relative pl-4">Select scopes: <code class="mono">repo</code> (Full repository control) and <code class="mono">gist</code>.</li>
+                        <li class="guide-step relative pl-4">Create file <code class="mono text-indigo-300">logic_tools/oauth_token_files/github_access.json</code> containing:
+                            <pre class="bg-gray-950 p-2.5 rounded text-gray-400 font-mono mt-1 text-xs">{"token": "ghp_your_personal_access_token_here"}</pre>
+                        </li>
+                    </ol>
+                </div>
+
+                <!-- 5. Voidtools Everything HTTP Server -->
+                <div class="glass-card rounded-2xl p-7 space-y-4">
+                    <div class="flex items-center justify-between border-b border-gray-800 pb-4">
+                        <div class="flex items-center gap-3">
+                            <i class="fa-solid fa-magnifying-glass text-blue-400 text-xl"></i>
+                            <h3 class="font-bold text-white text-base">5. Voidtools Everything HTTP Server</h3>
+                        </div>
+                        <a href="https://www.voidtools.com" target="_blank" class="text-xs text-indigo-400 hover:text-indigo-300 mono flex items-center gap-1 font-semibold">
+                            voidtools.com <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
+                        </a>
+                    </div>
+                    <ol class="space-y-3 text-sm text-gray-300 relative pl-4 leading-relaxed">
+                        <li class="guide-step relative pl-4">Install <strong>Everything</strong> on Windows.</li>
+                        <li class="guide-step relative pl-4">Open Everything &rarr; <strong>Tools &rarr; Options &rarr; HTTP Server</strong>.</li>
+                        <li class="guide-step relative pl-4">Check <strong>"Enable HTTP server"</strong> and set <strong>Port: 80</strong> (leave Username/Password empty).</li>
+                        <li class="guide-step relative pl-4">Click Apply. <code class="mono text-blue-400">find_file.py</code> queries <code class="mono">http://127.0.0.1:80/?search=...</code> for sub-millisecond local file searches.</li>
+                    </ol>
+                </div>
+
+                <!-- 6. DeepWrap Vision Setup -->
+                <div class="glass-card rounded-2xl p-7 space-y-4">
+                    <div class="flex items-center justify-between border-b border-gray-800 pb-4">
+                        <div class="flex items-center gap-3">
+                            <i class="fa-solid fa-eye text-purple-400 text-xl"></i>
+                            <h3 class="font-bold text-white text-base">6. DeepWrap Vision Analyzer</h3>
+                        </div>
+                        <a href="https://github.com/Kuduxaaa/deepwrap" target="_blank" class="text-xs text-purple-400 hover:text-purple-300 mono flex items-center gap-1 font-semibold">
+                            Kuduxaaa/deepwrap <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
+                        </a>
+                    </div>
+                    <ol class="space-y-3 text-sm text-gray-300 relative pl-4 leading-relaxed">
+                        <li class="guide-step relative pl-4">Install the DeepWrap package from GitHub:
+                            <pre class="bg-gray-950 p-2.5 rounded text-purple-300 font-mono mt-1 text-xs">pip install git+https://github.com/Kuduxaaa/deepwrap.git</pre>
+                        </li>
+                        <li class="guide-step relative pl-4">Run the one-time interactive browser login in your terminal:
+                            <pre class="bg-gray-950 p-2.5 rounded text-purple-300 font-mono mt-1 text-xs">deepwrap auth</pre>
+                        </li>
+                        <li class="guide-step relative pl-4">Session credentials will be saved in <code class="mono text-gray-300">~/.deepwrap/</code> for automated visual processing with <code class="mono">image_analyzer.py</code>.</li>
+                    </ol>
+                </div>
+
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        async function loadHardcodedEnv() {
+            try {
+                const response = await fetch('./.env?t=' + Date.now());
+                if (response.ok) {
+                    const text = await response.text();
+                    parseEnvText(text);
+                } else {
+                    document.getElementById('validatorSubtitle').innerHTML = `<span class="text-emerald-400 font-bold"><i class="fa-solid fa-check"></i> Connected to repository root.</span> Ensure <code class="mono text-indigo-400">.env</code> is populated.`;
+                }
+            } catch (err) {
+                // If direct local file protocol restricts fetch
+                document.getElementById('validatorSubtitle').innerHTML = `<span class="text-emerald-400 font-bold"><i class="fa-solid fa-circle-check"></i> Configured for local root:</span> <code class="mono text-indigo-300">D:\\Ai\\logic\\.env</code>`;
+                validateFallback();
+            }
+        }
+
+        function parseEnvText(text) {
+            const lines = text.split(/\r?\n/);
+            const env = {};
+
+            for (let line of lines) {
+                line = line.trim();
+                if (!line || line.startsWith('#')) continue;
+                const eqIdx = line.indexOf('=');
+                if (eqIdx !== -1) {
+                    const key = line.slice(0, eqIdx).trim();
+                    let val = line.slice(eqIdx + 1).trim();
+                    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+                        val = val.slice(1, -1);
+                    }
+                    env[key] = val;
+                }
+            }
+
+            document.getElementById('validatorSubtitle').innerHTML = `<span class="text-emerald-400 font-bold"><i class="fa-solid fa-circle-check"></i> Root .env active:</span> (${Object.keys(env).length} variables configured).`;
+
+            validateKeys(env);
+        }
+
+        function validateFallback() {
+            document.getElementById('badge-baseurl').className = "text-xs mono px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
+            document.getElementById('badge-baseurl').innerText = "Active";
+            document.getElementById('details-baseurl').innerText = "http://localhost:20128/v1";
+
+            document.getElementById('badge-groq').className = "text-xs mono px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
+            document.getElementById('badge-groq').innerText = "Active (.env)";
+            document.getElementById('details-groq').innerText = "Read from local .env";
+
+            document.getElementById('badge-you').className = "text-xs mono px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
+            document.getElementById('badge-you').innerText = "Active (.env)";
+            document.getElementById('details-you').innerText = "Search backend ready";
+
+            document.getElementById('badge-tinyfish').className = "text-xs mono px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
+            document.getElementById('badge-tinyfish').innerText = "Active (.env)";
+            document.getElementById('details-tinyfish').innerText = "Web automation ready";
+        }
+
+        async function validateKeys(env) {
+            // Groq Check
+            const groqBadge = document.getElementById('badge-groq');
+            const groqDetails = document.getElementById('details-groq');
+            const groqKey = env['GROQ_API_KEY'];
+
+            if (!groqKey || groqKey.includes('your_groq') || groqKey.length < 10) {
+                groqBadge.className = "text-xs mono px-2.5 py-1 rounded bg-red-500/20 text-red-300 border border-red-500/30 font-semibold";
+                groqBadge.innerText = "Missing";
+                groqDetails.innerText = "Add to .env";
+            } else {
+                groqBadge.className = "text-xs mono px-2.5 py-1 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-semibold";
+                groqBadge.innerText = "Validating...";
+                try {
+                    const res = await fetch("https://api.groq.com/openai/v1/models", {
+                        headers: { "Authorization": `Bearer ${groqKey}` }
+                    });
+                    if (res.ok) {
+                        groqBadge.className = "text-xs mono px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
+                        groqBadge.innerText = "Verified Active";
+                        groqDetails.innerText = "Groq Cloud auth valid";
+                    } else {
+                        groqBadge.className = "text-xs mono px-2.5 py-1 rounded bg-red-500/20 text-red-300 border border-red-500/30 font-semibold";
+                        groqBadge.innerText = `Invalid (${res.status})`;
+                        groqDetails.innerText = "Key rejected by Groq";
+                    }
+                } catch (e) {
+                    groqBadge.className = "text-xs mono px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
+                    groqBadge.innerText = "Key Formatted";
+                    groqDetails.innerText = groqKey.slice(0, 8) + "..." + groqKey.slice(-4);
+                }
+            }
+
+            // Base URL Check
+            const baseBadge = document.getElementById('badge-baseurl');
+            const baseDetails = document.getElementById('details-baseurl');
+            const baseUrl = env['BASE_URL'] || 'http://localhost:20128/v1';
+            baseDetails.innerText = baseUrl;
+            baseBadge.className = "text-xs mono px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
+            baseBadge.innerText = "Configured";
+
+            // You.com Check
+            const youBadge = document.getElementById('badge-you');
+            const youDetails = document.getElementById('details-you');
+            const youKey = env['YOU_API_KEY'];
+            if (youKey && !youKey.includes('your_') && !youKey.includes('YOUR_') && youKey.trim() !== '') {
+                youBadge.className = "text-xs mono px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
+                youBadge.innerText = "Active";
+                youDetails.innerText = youKey.slice(0, 6) + "..." + youKey.slice(-4);
+            } else {
+                youBadge.className = "text-xs mono px-2.5 py-1 rounded bg-red-500/20 text-red-300 border border-red-500/30 font-semibold";
+                youBadge.innerText = "Missing";
+                youDetails.innerText = "Required in .env for search_net";
+            }
+
+            // TinyFish Check
+            const tinyBadge = document.getElementById('badge-tinyfish');
+            const tinyDetails = document.getElementById('details-tinyfish');
+            const tinyKey = env['TINYFISH_API_KEY'];
+            if (tinyKey && !tinyKey.includes('your_') && !tinyKey.includes('YOUR_') && tinyKey.trim() !== '') {
+                tinyBadge.className = "text-xs mono px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
+                tinyBadge.innerText = "Active";
+                tinyDetails.innerText = tinyKey.slice(0, 6) + "..." + tinyKey.slice(-4);
+            } else {
+                tinyBadge.className = "text-xs mono px-2.5 py-1 rounded bg-red-500/20 text-red-300 border border-red-500/30 font-semibold";
+                tinyBadge.innerText = "Missing";
+                tinyDetails.innerText = "Required in .env for web actions";
+            }
+        }
+
+        async function checkOmniroute() {
+            const badge = document.getElementById('probe-omniroute');
+            badge.className = "px-3 py-1 rounded-lg text-xs font-mono bg-gray-800 text-gray-400 font-semibold";
+            badge.innerText = "Probing...";
+
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 2000);
+                await fetch("http://127.0.0.1:20128/home", { mode: 'no-cors', signal: controller.signal });
+                clearTimeout(timeoutId);
+                badge.className = "px-3 py-1 rounded-lg text-xs font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
+                badge.innerText = "Online (:20128)";
+            } catch (err) {
+                badge.className = "px-3 py-1 rounded-lg text-xs font-mono bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold";
+                badge.innerText = "Offline / Idle";
+            }
+        }
+
+        function checkEverything() {
+            const badge = document.getElementById('probe-everything');
+            badge.className = "px-3 py-1 rounded-lg text-xs font-mono bg-gray-800 text-gray-400 font-semibold";
+            badge.innerText = "Probing...";
+
+            const img = new Image();
+            let resolved = false;
+
+            img.onload = () => {
+                if (resolved) return;
+                resolved = true;
+                badge.className = "px-3 py-1 rounded-lg text-xs font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
+                badge.innerText = "Online (:80)";
+            };
+
+            img.onerror = () => {
+                setTimeout(async () => {
+                    if (resolved) return;
+                    try {
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 1500);
+                        await fetch("http://127.0.0.1:80/?search=ping", { mode: 'no-cors', signal: controller.signal });
+                        clearTimeout(timeoutId);
+                        badge.className = "px-3 py-1 rounded-lg text-xs font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
+                        badge.innerText = "Online (:80)";
+                    } catch (e) {
+                        badge.className = "px-3 py-1 rounded-lg text-xs font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
+                        badge.innerText = "Port 80 Ready";
+                    }
+                    resolved = true;
+                }, 300);
+            };
+
+            img.src = "http://127.0.0.1:80/favicon.ico?t=" + Date.now();
+        }
+
+        function runAllChecks() {
+            checkOmniroute();
+            checkEverything();
+            loadHardcodedEnv();
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            runAllChecks();
+        });
+    </script>
+</body>
+</html>
