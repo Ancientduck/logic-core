@@ -1,0 +1,113 @@
+Project: Strategy Ledger
+
+Current Status:
+1. Directory structure initialized at vinci_tools/strategy_ledger/.
+2. Retrieval script created at vinci_tools/strategy_ledger/get_strategy.py.
+
+Next Steps:
+1. Define JSON schema for application strategies.
+2. Populate strategies/ directory with Steam and other application protocols.
+3. Implement pre-flight verification protocol.
+4. Integration and testing of the retrieval logic.
+
+Objective:
+To establish a centralized and robust repository for all automation protocols, ensuring accuracy and efficiency in task execution.
+
+- Location finding capabilities
+- Out of terminal text interface
+[X] Activity monitor
+
+
+[DONE 2026-09-20] === AI COUNCIL PLAN (multi-agent system) — implemented as AI Council v2 (LOGIC + VINCI + SAGE, dispatch system live) ===
+
+CONCEPT: 3 AI instances (different models) working together. Roles, not extra seats — supervisor is one of the 3.
+
+ROLES / CASTING:
+- Supervisor/Judge: strongest reasoning model (Claude Sonnet / GPT-5 / Gemini Pro class). Decomposes task, delegates, merges, decides. No economy here.
+- Worker: strong domain model, mid-tier ok (DeepSeek V3/R1 for code, Qwen Coder for open weights). Critic catches its mistakes.
+- Critic: detail-oriented, slightly weaker/different family (GPT-class / Gemini Flash). Never same model family as worker — same lineage = same blind spots.
+- RULE: never two agents on the same model. Same-model ensembles = one opinion paid 3x.
+
+PATTERN: Supervisor (2026 production default) + Critique loop (~1.2-1.5x cost).
+- Supervisor delegates NON-OVERLAPPING subtasks; workers don't see each other's output during execution.
+- No voting. One judge decides. Models argue, they don't vote.
+- Hard cap: 2 critique rounds max, then supervisor merges best effort + reports unresolved. (Prevents infinite worker/critic disagreement loops.)
+
+MERGING CODE:
+1. Decompose along clean seams (one agent = one file/module for v1).
+2. Define interfaces FIRST: a "contract" file with function signatures + data formats everyone codes against.
+3. Workers emit artifacts (files or parseable JSON), never prose.
+4. Supervisor integrates + resolves conflicts (name clashes, signature mismatches); sends targeted fixes back if needed.
+5. Critic tests the ASSEMBLED whole, not individual pieces — integration bugs live between modules.
+
+COMPLETION / SYNCHRONIZATION:
+- v1: synchronous API calls (supervisor blocks until worker returns).
+- Structured markers in prompts: "DONE + file path" or "BLOCKED + reason". Trust the marker, not the tone.
+- Loop: Supervisor -> Worker (waits) -> artifact -> Critic (waits) -> PASS => deliver / ISSUES => back to Worker (max 2 rounds).
+
+STATE / COMMUNICATION:
+- Shared blackboard (JSON/dict or SQLite), orchestrator controls write access.
+- Each agent gets ONLY the context for its subtask — never full shared chat history (3x token cost + echo chamber).
+- Global state (task status) owned by supervisor.
+
+ROUTING:
+- All calls through OmniRoute (localhost:20128) — swapping a seat = one config line.
+- Cheap classifier/router first: does this task even need multiple agents? Reserve council for high-stakes work.
+
+COST NOTES:
+- Debate/Council pattern = ~2.5x single-model cost (Microsoft Copilot Council). Critique variant only ~1.2x.
+- Lean option: supervisor + critic (2 agents) captures most of the value.
+- Third agent only worth it if tasks genuinely decompose into parallel work.
+
+USE CASE: security testing council (own/authorized targets ONLY):
+- Worker 1: recon/enumeration. Worker 2: attack surface analysis. Judge: filter false positives, rate exploitability.
+- Scanners (Nuclei/ZAP) for breadth, council for depth (chaining findings, logic flaws).
+
+
+[DONE 2026-09-20] === AI COUNCIL TUI (spectator dashboard) — superseded: agents report back directly to LOGIC; TUI unnecessary for now ===
+- Separate py file: TUI is a pure OBSERVER, never drives the system.
+- Engine stays separate: LOGIC (or thin orchestrator) = supervisor logic + blackboard + OmniRoute calls.
+- TUI reads the blackboard directory only and renders it.
+
+Layout (Textual library):
+- Left pane: agent roster + status (IDLE / WORKING / CRITIQUING / BLOCKED)
+- Center: live blackboard event feed (task assignments, file writes, verdicts)
+- Right: artifact inspector (pick a file, view latest version)
+- Bottom: round counter + cost tally (watch loop cap and token bill live)
+
+Rules:
+- Blackboard = single source of truth. TUI only reads, never writes.
+- Agents' output format must never change for display purposes (observer must not contaminate the system).
+- Build order: orchestrator module w/ pluggable blackboard first, TUI second.
+
+Benefits: full visibility into what each agent writes, live debugging, cleaner than tailing logs.
+
+
+=== MEMORY RETRIEVAL FIX — 2026-09-20 ===
+Problem: passive injection over-fires on loose semantic similarity, not conversational intent.
+Evidence this session:
+- Protest memory (episodic) fired on "we will see" — no exam signal in the phrase; topic adjacency only. Contributed nothing.
+- AI Council memory fired during flight-tracker/tools talk — matched keywords like "tool"/"system"; zero relevance.
+- Net result: 2 injections, arguably 0 genuinely earned. System over-eager.
+Fix directions:
+1. Raise similarity threshold for passive injection (imp >= 0.8 currently injects on weak matches).
+2. Require stronger query overlap for passive injection; consider intent-based gating (what user is trying to do) not just topic keywords.
+3. Consider recency/decayed relevance weighting so old episodic items don't fire on tangential phrases.
+4. Add injection logging (what fired + why + score) so false positives are measurable, not anecdotal.
+
+=== PHONE <-> PC CONNECTION (own app pipeline) — 2026-09-20 ===
+Decision made:
+- No cloud brain for v1. PC off = system offline. Accepted.
+- No port forwarding (BD ISPs use CGNAT; WAN IP likely 100.64.x.x, dead on arrival).
+- Telegram bot rejected: same PC-on constraint, less control. Messenger (free on local carriers) already covers zero-MB emergency channel via chat_monitor + send_message_to_messenger.py.
+
+Architecture:
+1. FastAPI server on PC (logic_tools/) — the "brain". LOGIC runs it; exposes endpoints for commands, file access, status, alerts.
+2. Tailscale (free, WireGuard-based) for transport — install on PC + phone, one shared account. CGNAT-proof, no ports opened, end-to-end encrypted, direct LAN connection when both devices home. Phone reachable from mobile data OR any Wi-Fi; needs SOME internet, not specifically MB.
+3. Client: start as PWA (install from browser, one tap), native app later if needed. PWA talks to FastAPI over Tailscale IP (100.x.x.x:port).
+
+Channels summary:
+- Messenger = free emergency channel (works with 0 MB on BD carriers, fragile, PC must be on).
+- Tailscale + FastAPI + PWA = proper interface (needs any signal, PC must be on).
+
+Build order: FastAPI server -> Tailscale setup (user makes account, logs in both devices) -> PWA client -> features (alerts, file access, phone ADB relay).

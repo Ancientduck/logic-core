@@ -171,14 +171,14 @@ class OpenAIChunkWrapper:
     def __init__(self, text):
         self.text = text
 class OpenAIChatSession:
-    def __init__(self, client, model, system_instruction, history=None, temperature=1.0, top_p=0.9):
+    def __init__(self, client, model, system_instruction, history=None, temperature=1.0, top_p=0.9,extra_body=None):
         self.client = client
         self.model = model
         self.system_instruction = system_instruction
         self.history = history or []
         self.temperature = temperature
         self.top_p = top_p
-        
+        self.extra_body = extra_body
     def get_history(self):
         history_text = ""
         for msg in self.history:
@@ -222,6 +222,7 @@ class OpenAIChatSession:
             temperature=self.temperature,
             top_p=self.top_p,
             stream=True,
+            extra_body=self.extra_body,
             reasoning_effort="medium", #*here
             # extra_body={
             #     "reasoning_effort": "none"
@@ -268,7 +269,32 @@ class Base_AI():
             system_instruction=build_system_prompt(),
             temperature=0.3,
             top_p=0.9,
-        
+            # Add this block to pass safety settings to Gemini via the OpenAI SDK
+            extra_body={
+                "safetySettings": [
+                    {
+                        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                        "threshold": "BLOCK_NONE"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_HARASSMENT",
+                        "threshold": "BLOCK_NONE"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_HATE_SPEECH",
+                        "threshold": "BLOCK_NONE"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                        "threshold": "BLOCK_NONE"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_CIVIC_INTEGRITY",
+                        "threshold": "BLOCK_NONE"
+                    }
+                ]
+            }
+
         )
         self.logic_tools = 'logic_tools'
         self.debug_prompt = False
@@ -697,12 +723,13 @@ class Base_AI():
             
     def run_code_streamed(self, cmd):
         proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            encoding='utf-8',
-            errors='replace',
-        )
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                encoding='utf-8',
+                errors='replace',
+            )
         self.script_results = proc          # /kill still targets this
         sink = getattr(self, "_line_sink", None) 
         lines = []

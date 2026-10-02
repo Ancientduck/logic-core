@@ -123,7 +123,7 @@ AVAILABLE SCRIPTS: {', '.join(usable_scripts) if usable_scripts else 'None.'}
 - yt_vid_transcript.py (args: ["video link"]) - get transcript. then summarize
 - send_message_to_messenger.py (args: [[name, msg]] or [[name, msg, file_path]]) - nested array batch list. file_path (optional): single file as a string; multiple files as a list of paths — all sent in one message. Speak as user.
 - find_file.py (args: ["file_name"]) - returns exact path. use it when path is not given to you
-
+- read_messenger_unread_messages.py (no args = all unread; ["name"] = targeted inbox, last 10 msgs)
 Rule: "name" must be either a listed builtin or a script filename ending in .py. No "command" field.
 </tools>
 
@@ -159,7 +159,7 @@ sys_prompt_vinci = get_prompt('Vinci')
 sys_prompt_sage = get_prompt("Sage")
 
 MODEL_VINCI = "gemini/gemini-3.5-flash-lite"
-MODEL_SAGE = "atria/Atria-Dawn-Preview"
+MODEL_SAGE = "freeinference/glm-5.3-flash"
 
 client = OpenAI(
     api_key=API_KEY,

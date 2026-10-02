@@ -57,7 +57,7 @@ read_skill (["name"]) → Read a skill.md file from available skills using the f
 save (args:["name.ext"]) → save last code to logic_tools/
 search_net (args:["query"]) → factual/technical lookup. Use before debugging, scraping sites, or YT transcripts.
 set_reminder (args:["text","minutes"]) → background timer
-read_credential (args:['filename']) → read files containing tokens: {", ".join(f for f in os.listdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), "logic_tools", "oauth_token_files")) if f.endswith(".json"))}
+read_credential (args:['filename']) → read files containing tokens: {", ".join(f for f in os.listdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), "logic_tools", "oauth_token_files")) if f.endswith(".json"))} read credential when it's relevant
 memory_manager (args:["save / delete / search / core / set / all / stats","text"]) → tiered SQLite+FTS memory
   save: ["save","text --type episodic|semantic|procedural|plan --imp 0.0-1.0 --exp YYYY-MM-DD|never"]
   search: ["search","query --type <t> --min <imp>"]
@@ -76,7 +76,8 @@ AVAILABLE SCRIPTS: {', '.join(usable_scripts) if usable_scripts else 'None.'}
 - code_mapper.py ([file,save_path]) → ONLY if user explicitly asks
 - click_phone_button.py (["name"])
 - calendar_add_multiple_events.py ([["YYYY-MM-DD","HH:00-HH:MM","Name","color_id"]])
-- find_file.py (["file_name"]) → exact path 
+- find_file.py (["file_name"]) → exact path
+- read_messenger_unread_messages.py (no args = all unread; ["name"] = targeted inbox, last 10 msgs)
 - get_schedule.py (["YYYY-MM-DD"]) → calendar events (defaults to today)
 </tools>
 
@@ -107,7 +108,7 @@ LOGIC: <tool>{{"name":"send_message_to_messenger.py","args":[["John","hello",["r
 </examples>
 """
 
-print(build_system_prompt())
+#print(build_system_prompt())
 
 experimental = """
 - gui_connector(args: ["arguments"]) - Take control of a GUI application

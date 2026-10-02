@@ -5,17 +5,26 @@ import win32gui
 import win32com.client
 import time
 import os
+import ctypes
+import ctypes.wintypes
 from collections import deque
 import uiautomation as auto
 import urllib.parse
+import comtypes
+from pycaw.pycaw import AudioUtilities, IAudioMeterInformation
 
 # Short global timeout so UI Automation doesn't hang the monitor
 auto.uiautomation.SetGlobalSearchTimeout(0.3)
 
+class LASTINPUTINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", ctypes.wintypes.UINT),
+        ("dwTime", ctypes.wintypes.DWORD)
+    ]
 
 class ActivityMonitor:
 
-    def __init__(self, ignored_processes=None):
+    def __init__(self, ignored_processes=None, idle_threshold=300):
         self.ignored_processes = ignored_processes or [
             "windowsterminal.exe",
             "powershell.exe",
@@ -30,6 +39,9 @@ class ActivityMonitor:
             "firefox.exe"
         }
 
+        self.idle_threshold = idle_threshold
+        self.is_idle = False
+
         self.last_hwnd = None
         self.last_title = ""
         self.last_proc_name = ""
@@ -42,6 +54,43 @@ class ActivityMonitor:
         self.recent_history = deque(maxlen=10)
 
         self._tracking = False
+
+    def get_idle_duration(self):
+        """Returns time in seconds since last user keyboard/mouse input."""
+        lii = LASTINPUTINFO()
+        lii.cbSize = ctypes.sizeof(LASTINPUTINFO)
+        if ctypes.windll.user32.GetLastInputInfo(ctypes.byref(lii)):
+            millis_since_input = ctypes.windll.kernel32.GetTickCount() - lii.dwTime
+            return max(0.0, millis_since_input / 1000.0)
+        return 0.0
+
+    def is_audio_playing(self):
+        """Ultra-lightweight audio check via default audio device peak meter."""
+        try:
+            device = AudioUtilities.GetSpeakers()
+            if not device:
+                return False
+            meter = device.Activate(
+                IAudioMeterInformation._iid_,
+                comtypes.CLSCTX_ALL,
+                None
+            )
+            meter_info = ctypes.cast(meter, ctypes.POINTER(IAudioMeterInformation))
+            peak = meter_info.GetPeakValue()
+            return peak > 0.001
+        except Exception:
+            return False
+
+    def check_user_idle(self):
+        """
+        Determines whether the user is truly idle:
+        Inactivity > threshold AND no audio output playing.
+        """
+        inactivity = self.get_idle_duration()
+        if inactivity >= self.idle_threshold:
+            if not self.is_audio_playing():
+                return True, inactivity
+        return False, inactivity
 
     def _get_process_name(self, hwnd):
         try:
@@ -174,6 +223,37 @@ class ActivityMonitor:
 
     def monitor(self):
         while True:
+            idle_now, inactivity_time = self.check_user_idle()
+
+            if idle_now:
+                if not self.is_idle:
+                    # User transitioned to IDLE
+                    self.is_idle = True
+                    if self._tracking and self.last_hwnd is not None:
+                        active_elapsed = max(0.0, time.perf_counter() - self.start_time - inactivity_time)
+                        if active_elapsed > 0.1:
+                            key = self.last_proc_name
+                            self.history[key] = self.history.get(key, 0) + active_elapsed
+
+                        yield (
+                            self.last_title,
+                            self.last_proc_name,
+                            self.last_path,
+                            self.last_url,
+                            active_elapsed,
+                            self.history.get(self.last_proc_name, 0),
+                            "IDLE",
+                            "idle",
+                            "",
+                            ""
+                        )
+                time.sleep(1.0)
+                continue
+
+            if self.is_idle:
+                # User resumed activity from IDLE
+                self.is_idle = False
+                self.start_time = time.perf_counter()
 
             hwnd, title, proc_name, path = self.get_current_focus()
 
@@ -251,9 +331,7 @@ class ActivityMonitor:
 
             time.sleep(0.5)
 
-
 monitor = ActivityMonitor()
-
 
 if __name__ == "__main__":
 
