@@ -111,5 +111,4 @@ D:/Ai/logic/
 ---
 
 ## Security & Usage Notice
-
-This repository contains private environment credentials, OAuth tokens, and system automation scripts tailored for this specific environment. It is intended strictly for private deployment and authorized local execution.
+ To err is human; to hallucinate with absolute confidence is AI. Keep that in mind
