@@ -1,3 +1,6 @@
+import win32gui
+import win32process
+import win32con
 from user_voice import get_voice
 from datetime import datetime
 from logic_memory_manager import memorymanager, _parse_flags
@@ -223,7 +226,7 @@ class OpenAIChatSession:
             top_p=self.top_p,
             stream=True,
             extra_body=self.extra_body,
-            reasoning_effort="medium", #*here
+            #reasoning_effort="medium", #*here
             # extra_body={
             #     "reasoning_effort": "none"
             # },
@@ -260,6 +263,23 @@ class OpenAIChatSession:
 
         self.history = cleaned
 
+
+def _get_hwnds_for_pid(pid):
+    hwnds = []
+    def callback(hwnd, _):
+        try:
+            _, win_pid = win32process.GetWindowThreadProcessId(hwnd)
+            if win_pid == pid:
+                hwnds.append(hwnd)
+        except Exception:
+            pass
+        return True
+    try:
+        win32gui.EnumWindows(callback, None)
+    except Exception:
+        pass
+    return hwnds
+
 class Base_AI():
     def __init__(self):
 
@@ -270,38 +290,26 @@ class Base_AI():
             temperature=0.3,
             top_p=0.9,
             # Add this block to pass safety settings to Gemini via the OpenAI SDK
+
             extra_body={
-                "safetySettings": [
-                    {
-                        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-                        "threshold": "BLOCK_NONE"
-                    },
-                    {
-                        "category": "HARM_CATEGORY_HARASSMENT",
-                        "threshold": "BLOCK_NONE"
-                    },
-                    {
-                        "category": "HARM_CATEGORY_HATE_SPEECH",
-                        "threshold": "BLOCK_NONE"
-                    },
-                    {
-                        "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                        "threshold": "BLOCK_NONE"
-                    },
-                    {
-                        "category": "HARM_CATEGORY_CIVIC_INTEGRITY",
-                        "threshold": "BLOCK_NONE"
-                    }
+                "safety_settings": [
+                    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "BLOCK_NONE"}
                 ]
             }
-
         )
+
+        
         self.logic_tools = 'logic_tools'
         self.debug_prompt = False
         self.code_block = ''
         self.summary_history = []
         self.gen_code_terminator = False
         self.script_results = None
+        self.active_bg_tasks = {}
         self.activity_report = "[MONITOR] No activity data yet"
         self.monitor_thread = threading.Thread(
             target=self.activity_monitor_worker,
@@ -373,7 +381,7 @@ class Base_AI():
         possible_tool = ''
         user_input = prompt
         activity_report = self.activity_report
-
+        exe_mode = ''
         def speak_current():
             nonlocal current_sentence
 
@@ -533,11 +541,18 @@ class Base_AI():
                 time.sleep(delay)
                 delay *= 2
 
+        # pattern = r'''
+        #     ```python[ \t]+run[ \t]*\n
+        #     (.*?)
+        #     ^[ \t]*```[ \t]*$
+        # '''
+
         pattern = r'''
-            ```python[ \t]+run[ \t]*\n
+            ```python[ \t]+(run|thread)[ \t]*\n
             (.*?)
             ^[ \t]*```[ \t]*$
         '''
+
 
         match = re.search(
             pattern,
@@ -546,7 +561,8 @@ class Base_AI():
         )
 
         if match:
-            self.code_block = match.group(1)
+            exe_mode = match.group(1)
+            self.code_block = match.group(2)
             is_code = True
 
         if is_text_prompt:
@@ -572,7 +588,7 @@ class Base_AI():
                 ai_reply,
                 re.DOTALL
             )
-
+            
             for tool_str in tool_matches:
                 try:
                     tool_data = json.loads(tool_str)
@@ -592,10 +608,15 @@ class Base_AI():
                     yield from self.call_logic(
                         "\n[Error: LOGIC produced malformed JSON tool call]\n"
                     )
-
+                
         if is_code:
-            yield from self.run_gen_code(self.code_block)
+            if exe_mode == 'run':
+                yield from self.run_gen_code(self.code_block)
+            elif exe_mode == 'thread':
+                yield from self.run_threaded_code(self.code_block)
             is_code = False
+
+    
     def dispatch(self, args):
         import logic_hall
         pairs = args if isinstance(args, list) else [args]
@@ -745,7 +766,184 @@ class Base_AI():
         proc.wait()
         return ''.join(lines).strip()
 
+    
+    def run_threaded_code(self, code_block: str):
+        task_id = f"bg_{int(time.time())}_{len(self.active_bg_tasks)+1}"
 
+        def _worker(code, tid):
+            temp_file = None
+
+            tee_header = (
+                "import sys\n"
+                "try:\n"
+                "    _conout = open('CONOUT$', 'w', encoding='utf-8', errors='replace')\n"
+                "    class _ConsoleTee:\n"
+                "        def __init__(self, con, orig):\n"
+                "            self.con = con\n"
+                "            self.orig = orig\n"
+                "        def write(self, s):\n"
+                "            try:\n"
+                "                self.con.write(s)\n"
+                "                self.con.flush()\n"
+                "            except Exception:\n"
+                "                pass\n"
+                "            self.orig.write(s)\n"
+                "            self.orig.flush()\n"
+                "        def flush(self):\n"
+                "            try:\n"
+                "                self.con.flush()\n"
+                "            except Exception:\n"
+                "                pass\n"
+                "            self.orig.flush()\n"
+                "    sys.stdout = _ConsoleTee(_conout, sys.stdout)\n"
+                "    sys.stderr = _ConsoleTee(_conout, sys.stderr)\n"
+                "except Exception:\n"
+                "    pass\n"
+            )
+
+            try:
+                with tempfile.NamedTemporaryFile(
+                    "w", suffix=".py", delete=False, encoding="utf-8"
+                ) as f:
+                    f.write(tee_header + code)
+                    temp_file = f.name
+
+                si = None
+                if os.name == "nt":
+                    si = subprocess.STARTUPINFO()
+                    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    si.wShowWindow = 0
+
+                proc = subprocess.Popen(
+                    ["python", "-u", temp_file],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    bufsize=1,
+                    startupinfo=si,
+                    creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == "nt" else 0
+                )
+
+                self.active_bg_tasks[tid] = {
+                    "proc": proc,
+                    "file": temp_file,
+                    "hwnds": [],
+                    "output": [],
+                }
+
+                time.sleep(0.4)
+
+                hwnds = _get_hwnds_for_pid(proc.pid)
+                self.active_bg_tasks[tid]["hwnds"] = hwnds
+
+                for h in hwnds:
+                    try:
+                        win32gui.ShowWindow(h, win32con.SW_HIDE)
+                    except Exception:
+                        pass
+
+                info = self.active_bg_tasks[tid]
+
+                for line in iter(proc.stdout.readline, ''):
+                    print(line, end='', flush=True)
+                    info["output"].append(line)
+
+                proc.wait()
+                result = "".join(info["output"]).strip()
+
+                if proc.returncode == 0:
+                    user_input_queue.put(
+                        f"system:[THREAD {tid} RESULT]\n{result or '[no output]'}"
+                    )
+                elif proc.returncode in (1, -1, 15, 3221225786):
+                    user_input_queue.put(
+                        f"system:[THREAD {tid} TERMINATED]"
+                        + (f"\n{result}" if result else "")
+                    )
+                else:
+                    user_input_queue.put(
+                        f"system:[THREAD {tid} CRASHED with code {proc.returncode}]"
+                        + (f"\n{result}" if result else "")
+                    )
+
+            except Exception as e:
+                user_input_queue.put(
+                    f"system:[THREAD_ERROR {tid}]: {e}"
+                )
+
+            finally:
+                if temp_file and os.path.exists(temp_file):
+                    try:
+                        os.remove(temp_file)
+                    except OSError:
+                        pass
+
+        t = threading.Thread(
+            target=_worker,
+            args=(code_block, task_id),
+            daemon=True
+        )
+        t.start()
+
+        yield from self.call_logic(
+            f"SYSTEM: Background task {task_id} started."
+        )
+
+    def show_threads(self):
+        if not self.active_bg_tasks:
+            print("[LOGIC] No background threads active.")
+            return
+
+        print()
+        print(f"[LOGIC] Active background threads ({len(self.active_bg_tasks)}):")
+
+        for tid, info in list(self.active_bg_tasks.items()):
+            proc = info["proc"]
+            hwnds = _get_hwnds_for_pid(proc.pid)
+            info["hwnds"] = hwnds
+
+            any_visible = any(win32gui.IsWindowVisible(h) for h in hwnds)
+            action = "Hidden" if any_visible else "Restored"
+            cmd_flag = win32con.SW_HIDE if any_visible else win32con.SW_RESTORE
+
+            for h in hwnds:
+                try:
+                    win32gui.ShowWindow(h, cmd_flag)
+                    if not any_visible:
+                        win32gui.SetForegroundWindow(h)
+                except Exception:
+                    pass
+
+            output = "".join(info.get("output", [])).rstrip()
+            if output:
+                tail = output[-800:]
+                if len(output) > len(tail):
+                    tail = "...\n" + tail
+                output_block = "\n    " + tail.replace("\n", "\n    ")
+            else:
+                output_block = " (no output yet)"
+
+            status = "running" if proc.poll() is None else f"exited({proc.returncode})"
+            print(f"  - {tid} (PID: {proc.pid}) [{status}] -> Console {action}")
+            print(f"    output:{output_block}")
+
+        print()
+
+    def kill_all_threads(self):
+        if not self.active_bg_tasks:
+            print("[LOGIC] No background threads to kill.")
+            return
+        for tid, info in list(self.active_bg_tasks.items()):
+            proc = info.get("proc")
+            if proc and proc.poll() is None:
+                try:
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+                    print(f"[LOGIC] Killed thread {tid} (PID: {proc.pid}).")
+                except Exception as e:
+                    print(f"[LOGIC] Failed to kill {tid}: {e}")
+            self.active_bg_tasks.pop(tid, None)
 
     def run_gen_code(self, code):
         self.gen_code_terminator = False
@@ -785,7 +983,7 @@ class Base_AI():
         finally:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
-
+    
     def reminder(self,args):
         reminder_text = args[0] if args else "reminder set"
         minutes = float(args[1] if len(args) > 1 else 1)
@@ -970,6 +1168,7 @@ class groq_ai():
                 return None
 
             if is_code:
+                
                 return self.code_block
             else:
                 return ai_reply
@@ -1175,7 +1374,7 @@ def get_local_day_schedule():
     from googleapiclient.discovery import build
     from google.oauth2.credentials import Credentials
     try:
-        creds = Credentials.from_authorized_user_file(r'D:\Ai\logic\logic_tools\oauth_token_files\google_oauth.json')
+        creds = Credentials.from_authorized_user_file(r'D:\Ai\logic\logic_tools\oauth_token_files\google_calendar_drive_oauth.json')
         service = build('calendar', 'v3', credentials=creds)
         
         local_tz = datetime.timezone(datetime.timedelta(hours=6))
@@ -1301,10 +1500,19 @@ def terminal_code(code):
     elif code == '/debug':
         logic_ai.debug_prompt = not logic_ai.debug_prompt
         print(f'debugger is {logic_ai.debug_prompt}')
+    elif code == '/thread':
+        logic_ai.show_threads()
+
+    elif code == '/kill all':
+        logic_ai.gen_code_terminator = True
+        logic_ai.terminate_gen_code()
+        logic_ai.kill_all_threads()
+        print("kill all triggered (foreground + threads)")
+
     elif code == '/kill':
         logic_ai.gen_code_terminator = True
         logic_ai.terminate_gen_code()
-        print("kill triggered")
+        print("kill triggered (foreground script)")
 
     elif code.startswith('/model'):
 
@@ -1384,6 +1592,16 @@ def input_thread():
             style=color_user,
             highlight=False
         )
+
+        if text == "/thread":
+            logic_ai.show_threads()
+            continue
+
+        if text == "/kill all":
+            logic_ai.terminate_gen_code()
+            logic_ai.kill_all_threads()
+            print("[Kill all triggered]")
+            continue
 
         if text == "/kill":
             logic_ai.terminate_gen_code()

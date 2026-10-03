@@ -4,7 +4,7 @@ from google.oauth2.credentials import Credentials
 
 def get_local_day_schedule():
     try:
-        creds = Credentials.from_authorized_user_file(r'D:\Ai\logic\logic_tools\google_oauth.json')
+        creds = Credentials.from_authorized_user_file(r'D:\Ai\logic\logic_tools\google_calendar_drive_oauth.json')
         service = build('calendar', 'v3', credentials=creds)
         
         local_tz = datetime.timezone(datetime.timedelta(hours=6))

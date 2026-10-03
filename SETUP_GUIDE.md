@@ -39,7 +39,7 @@ LOGIC interacts with Google Drive, Gmail, and Google Calendar via desktop OAuth 
    - Application type: **Desktop app**.
    - Name: `LOGIC Desktop Client`.
    - Click **Create**, then click **Download JSON**.
-6. Rename the downloaded file to `google_oauth.json` and place it in `logic_tools/oauth_token_files/google_oauth.json` (or repository root).
+6. Rename the downloaded file to `google_calendar_drive_oauth.json` and place it in `logic_tools/oauth_token_files/google_calendar_drive_oauth.json` (or repository root).
 7. On first execution of any calendar/drive tool, a browser window will open to authenticate. Upon approval, `token.json` will be generated automatically.
 
 ---

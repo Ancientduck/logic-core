@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 
 def add_calendar_events(events_list, utc_offset_hours=6):
-    cred_path = 'logic_tools/oauth_token_files/google_oauth.json'
+    cred_path = 'logic_tools/oauth_token_files/google_calendar_drive_oauth.json'
     with open(cred_path, 'r') as f:
         info = json.load(f)
 

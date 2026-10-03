@@ -79,7 +79,7 @@ D:/Ai/logic/
 |-- logic_hall.py                # Multi-agent worker orchestration (Vinci & Sage)
 |-- gui_controller.py            # Windows UI element hook and automation
 |-- logic_tools/                 # Python automation scripts & API clients
-|   |-- google_oauth.json        # Google Calendar / Drive credentials
+|   |-- google_calendar_drive_oauth.json        # Google Calendar / Drive credentials
 |   |-- send_message_to_messenger.py
 |   |-- scrape_site.py
 |   `-- ...

@@ -282,7 +282,7 @@ _OPEN_TAG_RE = re.compile(r"<(?P<tag>" + "|".join(TOOL_TAGS + RESULT_TAGS) + r")
 
 
 def normalize_fences(text: str) -> str:
-    text = re.sub(r"```python[ \t]+run[ \t]*(?=\r?\n)", "```python", text)
+    text = re.sub(r"```python[ \t]+(?:run|thread)[ \t]*(?=\r?\n)", "```python", text)
     text = re.sub(r"```(?!\w+\r?\n|\r?\n|\s|$)", "```\n", text)
     text = re.sub(r"(?<=\S)```", "\n```", text)
     return text
