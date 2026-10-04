@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import json
 import platform
 import psutil
@@ -153,7 +154,7 @@ def check_disk_space(issues):
 def check_minidumps(issues):
     log("\n=== BSOD Minidumps ===")
     try:
-        dump_dir = r"C:\Windows\Minidump"
+        dump_dir = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "Minidump"
         cutoff = datetime.datetime.now() - datetime.timedelta(hours=48)
         dumps = []
         if os.path.exists(dump_dir):

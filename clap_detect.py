@@ -1,4 +1,7 @@
 import os
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent
 import sounddevice as sd
 import numpy as np
 import subprocess
@@ -16,6 +19,17 @@ FREQ_THRESHOLD = 2000
 clap_count = 0
 last_clap_time = 0
 
+
+def _find_chrome():
+    import shutil as _sh
+    _w = _sh.which("chrome") or _sh.which("chrome.exe")
+    if _w:
+        return _w
+    for _e in ("ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"):
+        _p = os.path.join(os.environ.get(_e, ""), "Google", "Chrome", "Application", "chrome.exe")
+        if os.path.exists(_p):
+            return _p
+    return r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
 def is_process_running(process_name):
     for proc in psutil.process_iter(['name']):
         if process_name.lower() in proc.info['name'].lower():
@@ -51,13 +65,13 @@ def callback(indata, frames, time_info, status):
 def get_to_work():
     print("Activation threshold reached. Launching systems...")
     urls = ['facebook.com', 'youtube.com', 'torn.com']
-    chrome_path = r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
+    chrome_path = _find_chrome()
     
     if not is_process_running("WindowsTerminal.exe"):
         print("Launching Windows Terminal...")
         subprocess.Popen(
-            ["wt", "python", r"D:\Ai\logic\logic.py"],
-            cwd=r"D:\Ai\logic",
+            ["wt", "python", str(BASE_DIR / "logic.py")],
+            cwd=str(BASE_DIR),
         )
     else:
         print("Terminal already active. Skipping.")

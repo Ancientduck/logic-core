@@ -380,7 +380,8 @@ class Base_AI():
         final_prompt = ''
         possible_tool = ''
         user_input = prompt
-        activity_report = self.activity_report
+        activity_report = monitor.get_live_report()
+
         exe_mode = ''
         def speak_current():
             nonlocal current_sentence
@@ -1374,7 +1375,7 @@ def get_local_day_schedule():
     from googleapiclient.discovery import build
     from google.oauth2.credentials import Credentials
     try:
-        creds = Credentials.from_authorized_user_file(r'D:\Ai\logic\logic_tools\oauth_token_files\google_calendar_drive_oauth.json')
+        creds = Credentials.from_authorized_user_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logic_tools', 'oauth_token_files', 'google_calendar_drive_oauth.json'))
         service = build('calendar', 'v3', credentials=creds)
         
         local_tz = datetime.timezone(datetime.timedelta(hours=6))

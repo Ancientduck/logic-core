@@ -1,9 +1,10 @@
 import os
+from pathlib import Path
 import json
 import sys
 from datetime import datetime
 
-BASE_DIR = r"D:\Ai\logic\logic_tools\oauth_token_files"
+BASE_DIR = Path(__file__).resolve().parent / "oauth_token_files"
 DATA_FILE = os.path.join(BASE_DIR, "exercise_data.json")
 
 def load_data():

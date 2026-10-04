@@ -38,6 +38,9 @@ from io import BytesIO
 print_lock = threading.Lock()
 log_sinks = {}
 
+SKILLS_DIR = Path(__file__).resolve().parent / "logic_skills"
+RESULTS_DIR = Path(__file__).resolve().parent / "logic_hall_results"
+
 def tag_print(agent, msg):
     sink = log_sinks.get(agent)
     if sink:
@@ -106,8 +109,8 @@ Rules:
 4. Keep skills accurate, direct, execution-focused, and as short as possible.
 5. Update a skill when its procedure proves wrong, slow, or error-prone.
 
-Available skills (D:\Ai\logic\logic_skills):
-{",".join(os.listdir(r"D:\Ai\logic\logic_skills"))}
+Available skills ({SKILLS_DIR}):
+{",".join(os.listdir(SKILLS_DIR))}
 </skills>
 
 <tools>
@@ -139,7 +142,7 @@ Rule: "name" must be either a listed builtin or a script filename ending in .py.
 2. After writing a ```python block, STOP. No post-code explanations. No fake execution outputs.
 3. Keep internal automation methods silent unless asked.
 4. Ask permission before installing libraries or retrying failed tasks. Assume Python can execute anything until proven otherwise.
-5. Call logic for any issues and save your results as a file in D:\Ai\logic\logic_hall_results folder when required, make sub folders if needed
+5. Call logic for any issues and save your results as a file in {RESULTS_DIR} folder when required, make sub folders if needed
 </rules>
 
 <examples>
@@ -460,7 +463,7 @@ class Base_AI():
 
     def read_skill(self,args):
         name = args[0] if isinstance(args,list) else None
-        skill_folder = rf"D:\Ai\logic\logic_skills\{name}"
+        skill_folder = str(SKILLS_DIR / name)
         skill_data = open(skill_folder,encoding="utf-8").read()
         yield from self.call_logic(f'SKILL:{skill_data}')
 

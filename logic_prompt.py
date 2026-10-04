@@ -15,6 +15,8 @@ def put_scripts():
 
 put_scripts()
 
+SKILLS_DIR = Path(__file__).resolve().parent / "logic_skills"
+
 def build_system_prompt():
     user_name = os.getenv("USER_NAME", "name not found ask the user")
     return rf"""
@@ -45,8 +47,8 @@ Rules:
 4. Keep skills accurate, direct, execution-focused, and as short as possible.
 5. Update a skill when its procedure proves wrong, slow, or error-prone.
 
-Available skills (D:\Ai\logic\logic_skills):
-{",".join(os.listdir(r"D:\Ai\logic\logic_skills"))}
+Available skills ({SKILLS_DIR}):
+{",".join(os.listdir(SKILLS_DIR))}
 </skills>
 
 <tools>

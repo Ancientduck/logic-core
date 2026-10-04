@@ -6,8 +6,20 @@ import psutil, re, time
 _stderr = sys.stderr
 sys.stderr = open(os.devnull, 'w')
 
+
+def _find_chrome():
+    import shutil as _sh
+    _w = _sh.which("chrome") or _sh.which("chrome.exe")
+    if _w:
+        return _w
+    for _e in ("ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"):
+        _p = os.path.join(os.environ.get(_e, ""), "Google", "Chrome", "Application", "chrome.exe")
+        if os.path.exists(_p):
+            return _p
+    return r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
+
 USER_DATA_DIR = r"C:\Users\USER\AppData\Local\Google\Chrome\AutomationProfile"
-EXECUTABLE_PATH = r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
+EXECUTABLE_PATH = _find_chrome()
 DEBUG_PORT = 9222
 HEADLESS = True
 MAX_MSGS = 10
@@ -190,6 +202,26 @@ def extract_messages(page, include_own=False):
     result.reverse()
     return result
 
+
+def get_convo_header_name(page):
+    """Read the actual conversation name from the main panel header after clicking in."""
+    def _get():
+        # Try the heading element in the main conversation area
+        for sel in [
+            "div[role='main'] h2",
+            "div[role='main'] [data-testid='conversation-header'] span",
+            "div[role='main'] a[role='link'] span",
+            "div[role='banner'] h2",
+            "div[role='banner'] a span",
+        ]:
+            el = page.query_selector(sel)
+            if el:
+                txt = el.inner_text().strip()
+                if txt and txt not in ("", "Unread message"):
+                    return txt
+        return None
+    return poll_until(_get, timeout=5, interval=0.2)
+
 def main(target_name=None):
     import subprocess
     with sync_playwright() as p:
@@ -229,9 +261,10 @@ def main(target_name=None):
                 print(f"Could not find: {target_name}")
                 return
             wait_conversation_loaded(page, matched)
+            header = get_convo_header_name(page) or matched
             msgs = extract_messages(page, include_own=True)
             if msgs:
-                results[matched] = msgs
+                results[header] = msgs
         else:
             # Default mode: scan all unread
             unread = get_unread_convos(page)
@@ -244,9 +277,10 @@ def main(target_name=None):
                     print(f"Could not find: {target}")
                     continue
                 wait_conversation_loaded(page, target)
+                header = get_convo_header_name(page) or target
                 msgs = extract_messages(page)
                 if msgs:
-                    results[target] = msgs
+                    results[header] = msgs
 
         if not results:
             print("No unread messages found.")

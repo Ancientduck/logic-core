@@ -1,3 +1,4 @@
+import datetime
 import win32process
 import win32api
 import win32con
@@ -330,6 +331,23 @@ class ActivityMonitor:
                     self.start_time = time.perf_counter()
 
             time.sleep(0.5)
+
+
+    def get_live_report(self):
+        time_now = datetime.datetime.now().strftime("%I:%M %p")
+        if not self._tracking or (not self.last_title and not self.last_proc_name):
+            return f"[MONITOR] {time_now} | No activity data yet |"
+
+        current_elapsed = max(0.0, time.perf_counter() - self.start_time)
+        total_time = self.history.get(self.last_proc_name, 0) + current_elapsed
+        url_str = f" {self.last_url}" if self.last_url else ""
+        path_str = f" {self.last_path}" if (self.last_path and self.last_path != "None") else ""
+
+        return (
+            f"[MONITOR] {time_now} | "
+            f"current: {self.last_title} ({self.last_proc_name}){path_str}{url_str} | "
+            f"+{self.format_time(current_elapsed)} (total {self.format_time(total_time)}) |"
+        )
 
 monitor = ActivityMonitor()
 
