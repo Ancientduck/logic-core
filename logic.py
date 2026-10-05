@@ -1,3 +1,6 @@
+
+import os,sys
+
 import win32gui
 import win32process
 import win32con
@@ -19,22 +22,58 @@ from gui_controller import Control
 
 from tool_router import guess_tool
 import logic_voice
-import importlib
+
 import json
 
 
 import subprocess
 import time
-import os
+
 import re
-import sys
+
 import base64
 import tempfile
-import os
+
 import queue
 import threading
 import time
 from io import BytesIO
+
+temp_history_path = os.path.join(tempfile.gettempdir(),"reload_history.json")
+restored = False
+
+def save_for_restart():
+    try:
+        saved_history = logic_ai.chat.history[-6:]
+        with open(temp_history_path,"w",encoding="utf-8") as f:
+            json.dump(saved_history,f,ensure_ascii=False)
+    except Exception as e:
+        print(f"[handoff] save failed:{e}")
+
+def load_temp_history():
+    if not os.path.exists(temp_history_path):
+        return False
+    try:
+        with open(temp_history_path,encoding="utf-8") as f:
+            history_found = json.load(f)
+        logic_ai.chat.history = history_found
+        print(f'[SYS RELOADER]restored {len(history_found)}')
+        return True
+    except Exception as e:
+        print(f"[SYS RELOADER] load failed {e}")
+        return False
+    finally:
+        try:
+            os.remove(temp_history_path)
+        except OSError:
+            pass
+
+
+def self_restart():
+    save_for_restart()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    sys.exit(42)
 
 
 
@@ -1000,14 +1039,34 @@ class Base_AI():
 
         yield from self.call_logic(f'Reminder set: {reminder_text} - {minutes} minutes')
 
-    def read_skill(self,args):
-        name = args[0] if isinstance(args,list) else None
+    def read_skill(self, args):
+        name = args[0] if isinstance(args, list) and args else None
         skill_folder = rf"D:\Ai\logic\logic_skills\{name}"
-        skill_file = next((os.path.join(skill_folder,f) for f in os.listdir(skill_folder) if f.lower()=="skill.md"),None)
+
+        skill_file = next(
+            (
+                os.path.join(skill_folder, f)
+                for f in os.listdir(skill_folder)
+                if f.lower() == "skill.md"
+            ),
+            None
+        )
         if not skill_file:
             yield from self.call_logic(f"SKILL ERROR: skill.md not found for {name}")
             return
-        skill_data = open(skill_file,encoding="utf-8").read()
+
+        # UTF-8 first, then Windows encodings, then replacement as final fallback
+        for encoding in ("utf-8", "cp1252", "latin-1"):
+            try:
+                with open(skill_file, "r", encoding=encoding) as f:
+                    skill_data = f.read()
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            with open(skill_file, "r", encoding="utf-8", errors="replace") as f:
+                skill_data = f.read()
+
         yield from self.call_logic(f"SKILL:{skill_data}")
 
     def check_screen(self, args):
@@ -1364,7 +1423,7 @@ groq_caller = groq_ai()
 
 logic_ai = Base_AI()
 os.system('cls')
-
+restored = load_temp_history()    
 
 
 
@@ -1459,7 +1518,13 @@ voice_mode = False  # start in text mode
 
 def terminal_code(code):
     global voice_mode
-    if code == '/compact':
+
+            
+    if code == '/reload':
+        self_restart()
+        return
+
+    elif code == '/compact':
         logic_ai.reset_chat()
 
     elif code == '/v':
@@ -1493,7 +1558,7 @@ def terminal_code(code):
                 print(f"  last: {d}")
             if pending:
                 print(f"  {len(pending)} unread lines in TUI buffer")
-
+    
     elif code == '/chat off':
         stop_monitor()
     elif code == '/save':
@@ -1537,14 +1602,7 @@ def terminal_code(code):
 
         logic_voice.enable_overlay = not logic_voice.enable_overlay
         print(f"overlay {logic_voice.enable_overlay}")
-        
-    elif code.startswith('/reload'):
-        try:
-            library = code.split('/reload')[1]
-            print(f'reloading...{library}')
-            importlib.reload(library)
-        except Exception as e:
-            print(f'something went wrong {e}')
+
     else:
         print('\nCode invalid')
 
@@ -1618,19 +1676,36 @@ def load_last_summary(file_path="D:/Ai/logic/memory/summaries/summaries.txt"):
     except FileNotFoundError:
         return "No prior conversation."
 
+def _worker_main():
+    if os.name == 'nt':
+        try:
+            sys.stdin  = open('CONIN$',  'r', encoding='utf-8', errors='replace')
+            sys.stdout = open('CONOUT$', 'w', encoding='utf-8', errors='replace')
+            sys.stderr = open('CONOUT$', 'w', encoding='utf-8', errors='replace')
+        except Exception:
+            pass
+    run_logic()
 
 
-    
-if __name__ == "__main__":
-    
-    the_console.print("LOGIC: ", style=color_reply, end="", highlight=False)
-    
-    for chunk in logic_ai.call_logic(
-    f"system: user is Online. Greet briefly. If schedule matches previous summary, ask about user's current activity or mood instead. Do not reference schedule items already known. Previous: {load_last_summary()}\nSchedule: {get_local_day_schedule()}"
-    ):
-        the_console.print(chunk, style=color_reply, end="", highlight=False, markup=False)
-    print('')
-    
+def _supervisor_main():
+    script = os.path.abspath(__file__)
+    args = [sys.executable, script, '--worker'] + sys.argv[1:]
+    while True:
+        rc = subprocess.call(args)
+        if rc != 42:
+            break
+
+
+def run_logic():
+    if not restored:
+        the_console.print("LOGIC: ", style=color_reply, end="", highlight=False)
+        for chunk in logic_ai.call_logic(
+        f"system: user is Online. Greet briefly. If schedule matches previous summary, ask about user's current activity or mood instead. Do not reference schedule items already known. Previous: {load_last_summary()}\nSchedule: {get_local_day_schedule()}"
+        ):
+            the_console.print(chunk, style=color_reply, end="", highlight=False, markup=False)
+        print('')
+    else:
+        user_input_queue.put('system: System RELOADED')
 
     threading.Thread(target=input_thread, daemon=True).start()
     #prompt_ready.set()
@@ -1687,5 +1762,10 @@ if __name__ == "__main__":
             the_console.print(chunk, style=color_reply, end="", highlight=False, markup=False)
 
         print()
-
+    
+if __name__ == "__main__":
+    if '--worker' in sys.argv:
+        _worker_main()
+    else:
+        _supervisor_main()
 

@@ -3095,22 +3095,31 @@ class LogicTUI(App):
     def _send_system_greeting(self) -> None:
         worker = get_current_worker()
         self.call_from_thread(self._set_processing, True)
-        self.call_from_thread(self._set_spinner, "Initializing system...")
         msg = self.call_from_thread(self._mount_chat_msg, "LOGIC", "")
 
-        prompt = (
-            f"system: user is online. Greet briefly. "
-            f"Previous session: {load_last_summary()} | "
-            f"Schedule: {get_local_day_schedule()}"
-        )
+        if getattr(logic_module_ref, "restored", False):
+            self.call_from_thread(self._set_spinner, "Resuming...")
+            prompt = (
+                "system: [Runtime] I just restarted to pick up code changes. "
+                "My last 6 turns are in context. Do not greet or acknowledge this — "
+                "just continue. Reply with a single short line confirming you're ready."
+            )
+        else:
+            self.call_from_thread(self._set_spinner, "Initializing system...")
+            prompt = (
+                f"system: user is online. Greet briefly. "
+                f"Previous session: {load_last_summary()} | "
+                f"Schedule: {get_local_day_schedule()}"
+            )
+
         try:
             self._stream_pipeline(msg, prompt, worker)
         finally:
             self.call_from_thread(self._set_processing, False)
+            self.call_from_thread(self._set_spinner, "")
             if not USE_REAL:
                 self.call_from_thread(self._mount_chat_msg, "SYS", _demo_list_text())
             self.call_from_thread(self._flush_pending_prompts)
-
     @work(exclusive=True, thread=True, group="logic_stream")
     def _dispatch_prompt(self, prompt: str) -> None:
         worker = get_current_worker()
@@ -3557,6 +3566,19 @@ class LogicTUI(App):
 
         self._queue_or_dispatch_prompt(text)
 
+def _worker_main():
+    LogicTUI().run()
+
+def _supervisor_main():
+    script = os.path.abspath(__file__)
+    args = [sys.executable, script, '--worker'] + sys.argv[1:]
+    while True:
+        rc = subprocess.call(args)
+        if rc != 42:
+            break
 
 if __name__ == "__main__":
-    LogicTUI().run()
+    if '--worker' in sys.argv:
+        _worker_main()
+    else:
+        _supervisor_main()
