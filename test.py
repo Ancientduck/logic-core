@@ -1,257 +1,254 @@
+
 """
-patch_thread_output.py
-Patches run_threaded_code / show_threads in your Base_AI source file.
+fix_anim_final.py — vlogic-anim-final (v2)
 
-Usage:
-    python patch_thread_output.py path\\to\\your_file.py
-    python patch_thread_output.py path\\to\\your_file.py --dry-run
+  1. Writes logic_framepump.py (unchanged from v1).
+  2. logic_tui.py edits:
+     a. removes the dead installer block: cut from its start marker to EOF
+        (it was appended at EOF, so no end-marker math — this was v1's bug)
+        + scrubs any stray bare '=====' lines for safety
+     b. adds throttled stream fallback inside _merge_sink_and_gen  (same as v1)
+     c. inserts a 2-line hook before the main guard                (same as v1)
 
-- Backs up the original to <file>.bak_<timestamp>
-- Locates `def run_threaded_code(self, code_block: str):` and
-  `def show_threads(self):` at the same indent level and replaces each
-  method body up to the next same-indent `def`.
-- Verifies the replacement compiles before writing.
+Run:  python fix_anim_final.py
 """
 
-import argparse
 import ast
 import os
 import re
 import shutil
 import sys
-import time
-from pathlib import Path
+
+MARK = "vlogic-anim-final"
+
+FRAMEPUMP_SRC = r'''"""vlogic frame pump.
+
+Called from logic_tui.py before its main guard. Finds the App subclass,
+wraps on_mount, and mounts a bottom-docked Static that animates
+LOGIC_LIVE_FRAME in place. Falls back to the window subtitle.
+"""
 
 
-NEW_RUN_THREADED = '''    def run_threaded_code(self, code_block: str):
-        task_id = f"bg_{int(time.time())}_{len(self.active_bg_tasks)+1}"
+def install_frame_pump(ns=None):
+    import inspect
+    import sys
 
-        def _worker(code, tid):
-            temp_file = None
+    if ns is None:
+        main = sys.modules.get("__main__")
+        ns = vars(main) if main is not None else {}
 
-            try:
-                with tempfile.NamedTemporaryFile(
-                    "w", suffix=".py", delete=False, encoding="utf-8"
-                ) as f:
-                    f.write(code)
-                    temp_file = f.name
+    try:
+        from textual.app import App
+        from textual.widgets import Static
+        from rich.text import Text
+    except Exception as e:
+        print(f"[vlogic-pump] WARN: textual import failed: {e}")
+        return False
 
-                proc = subprocess.Popen(
-                    ["python", "-u", temp_file],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    bufsize=1,
-                    creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == "nt" else 0
-                )
-
-                self.active_bg_tasks[tid] = {
-                    "proc": proc,
-                    "file": temp_file,
-                    "hwnds": [],
-                    "output": [],
-                }
-
-                time.sleep(0.4)
-
-                hwnds = _get_hwnds_for_pid(proc.pid)
-                self.active_bg_tasks[tid]["hwnds"] = hwnds
-
-                for h in hwnds:
-                    try:
-                        win32gui.ShowWindow(h, win32con.SW_HIDE)
-                    except Exception:
-                        pass
-
-                info = self.active_bg_tasks[tid]
-
-                for line in iter(proc.stdout.readline, ''):
-                    print(line, end='', flush=True)
-                    info["output"].append(line)
-
-                proc.wait()
-                result = "".join(info["output"]).strip()
-
-                if proc.returncode == 0:
-                    user_input_queue.put(
-                        f"system:[THREAD {tid} RESULT]\\n{result or '[no output]'}"
-                    )
-                elif proc.returncode in (1, -1, 15, 3221225786):
-                    user_input_queue.put(
-                        f"system:[THREAD {tid} TERMINATED]"
-                        + (f"\\n{result}" if result else "")
-                    )
-                else:
-                    user_input_queue.put(
-                        f"system:[THREAD {tid} CRASHED with code {proc.returncode}]"
-                        + (f"\\n{result}" if result else "")
-                    )
-
-            except Exception as e:
-                user_input_queue.put(
-                    f"system:[THREAD_ERROR {tid}]: {e}"
-                )
-
-            finally:
-                if temp_file and os.path.exists(temp_file):
-                    try:
-                        os.remove(temp_file)
-                    except OSError:
-                        pass
-
-        t = threading.Thread(
-            target=_worker,
-            args=(code_block, task_id),
-            daemon=True
-        )
-        t.start()
-
-        yield from self.call_logic(
-            f"SYSTEM: Background task {task_id} started."
-        )
-'''
-
-
-NEW_SHOW_THREADS = '''    def show_threads(self):
-        if not self.active_bg_tasks:
-            print("[LOGIC] No background threads active.")
-            return
-
-        print()
-        print(f"[LOGIC] Active background threads ({len(self.active_bg_tasks)}):")
-
-        for tid, info in list(self.active_bg_tasks.items()):
-            proc = info["proc"]
-            hwnds = _get_hwnds_for_pid(proc.pid)
-            info["hwnds"] = hwnds
-
-            any_visible = any(win32gui.IsWindowVisible(h) for h in hwnds)
-            action = "Hidden" if any_visible else "Restored"
-            cmd_flag = win32con.SW_HIDE if any_visible else win32con.SW_RESTORE
-
-            for h in hwnds:
-                try:
-                    win32gui.ShowWindow(h, cmd_flag)
-                    if not any_visible:
-                        win32gui.SetForegroundWindow(h)
-                except Exception:
-                    pass
-
-            output = "".join(info.get("output", [])).rstrip()
-            if output:
-                tail = output[-800:]
-                if len(output) > len(tail):
-                    tail = "...\\n" + tail
-                output_block = "\\n    " + tail.replace("\\n", "\\n    ")
-            else:
-                output_block = " (no output yet)"
-
-            status = "running" if proc.poll() is None else f"exited({proc.returncode})"
-            print(f"  - {tid} (PID: {proc.pid}) [{status}] -> Console {action}")
-            print(f"    output:{output_block}")
-
-        print()
-'''
-
-
-def find_method_span(source: str, name: str, want_indent: int = 4):
-    """
-    Return (start_index, end_index, indent_str) of the full method def block.
-    end_index is the index of the first char after the method (start of the
-    next same-indent 'def'/'class' or EOF).
-    """
-    lines = source.splitlines(keepends=True)
-
-    # locate the def line at the target indent
-    start_line = None
-    for i, line in enumerate(lines):
-        stripped = line.lstrip(" \t")
-        if stripped.startswith(f"def {name}("):
-            indent = len(line) - len(stripped)
-            if indent == want_indent:
-                start_line = i
-                break
-    if start_line is None:
-        return None
-
-    # walk forward until we hit a line at same-or-lower indent that
-    # starts a new def / class / top-level statement.
-    end_line = len(lines)
-    for j in range(start_line + 1, len(lines)):
-        raw = lines[j]
-        if not raw.strip():
-            continue
-        stripped = raw.lstrip(" \t")
-        indent = len(raw) - len(stripped)
-        if indent <= want_indent:
-            # any line at or above method indent terminates the method,
-            # but blank/comment lines don't matter since we already skip them
-            end_line = j
+    app_cls = None
+    for obj in list(ns.values()):
+        if isinstance(obj, type) and issubclass(obj, App) and obj is not App:
+            app_cls = obj
             break
+    if app_cls is None:
+        print("[vlogic-pump] WARN: no App subclass found")
+        return False
 
-    # compute char offsets
-    start_idx = sum(len(l) for l in lines[:start_line])
-    end_idx = sum(len(l) for l in lines[:end_line])
-    indent_str = " " * want_indent
-    return start_idx, end_idx, indent_str
+    if getattr(app_cls, "_vlogic_pumped", False):
+        return True
+    app_cls._vlogic_pumped = True
+
+    orig_on_mount = getattr(app_cls, "on_mount", None)
+
+    async def _pumped_on_mount(self, *a, **k):
+        if orig_on_mount is not None:
+            try:
+                res = orig_on_mount(self, *a, **k)
+                if inspect.isawaitable(res):
+                    await res
+            except Exception:
+                pass
+
+        if getattr(self, "_vlogic_pump_on", False):
+            return
+        self._vlogic_pump_on = True
+        self._vlogic_seq = -1
+
+        w = None
+        try:
+            w = Static("", id="vlogic-live-frame")
+            try:
+                await self.mount(w)
+            except Exception:
+                await self.screen.mount(w)
+            w.styles.dock = "bottom"
+            w.styles.height = "auto"
+            w.styles.padding = (0, 1)
+            w.display = False
+            self._vlogic_frame_w = w
+            lf = ns.get("LOGIC_LIVE_FRAME")
+            if lf is not None:
+                lf["pump"] = True
+            print("[vlogic-pump] frame widget installed (bottom-docked)")
+        except Exception as e:
+            self._vlogic_frame_w = None
+            print(f"[vlogic-pump] WARN: widget mount failed ({e}); subtitle fallback")
+
+        def _pump():
+            lf = ns.get("LOGIC_LIVE_FRAME")
+            if lf is None:
+                return
+            if lf.get("seq") == self._vlogic_seq:
+                return
+            self._vlogic_seq = lf.get("seq", 0)
+            txt = lf.get("text", "")
+            try:
+                w = self._vlogic_frame_w
+                if w is not None:
+                    if txt:
+                        w.update(Text("▸ " + txt[:150], style="bold #e0af68"))
+                        w.display = True
+                    else:
+                        w.update(Text(""))
+                        w.display = False
+                else:
+                    self.sub_title = ("▸ " + txt[:80]) if txt else ""
+            except Exception:
+                pass
+
+        self.set_interval(0.1, _pump)
+
+    app_cls.on_mount = _pumped_on_mount
+    print(f"[vlogic-pump] hooked into {app_cls.__name__}.on_mount")
+    return True
+'''
 
 
-def replace_method(source: str, name: str, new_body: str, indent: int = 4):
-    span = find_method_span(source, name, want_indent=indent)
-    if span is None:
-        return None, f"method '{name}' not found at indent {indent}"
-    start, end, _ = span
-    return source[:start] + new_body, None
+def read(p):
+    with open(p, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def write(p, s):
+    with open(p, "w", encoding="utf-8") as f:
+        f.write(s)
+
+
+def syntax_fail(path, src, e):
+    lines = src.splitlines()
+    lo = max(0, (e.lineno or 1) - 5)
+    hi = min(len(lines), (e.lineno or 1) + 4)
+    print(f"[FAIL] {path} would not parse: {e.msg} at line {e.lineno}")
+    print("─" * 60)
+    for i in range(lo, hi):
+        mk = ">>>" if i + 1 == e.lineno else "   "
+        print(f" {mk} {i+1:5d}: {lines[i]}")
+    print("─" * 60)
+    print("nothing was written")
+    sys.exit(1)
+
+
+def replace_once(src, old, new, label):
+    n = src.count(old)
+    if n != 1:
+        print(f"[FAIL] {label}: found {n} occurrences (need 1)")
+        sys.exit(1)
+    return src.replace(old, new, 1)
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("path", help="Path to the .py file containing Base_AI")
-    ap.add_argument("--dry-run", action="store_true")
-    args = ap.parse_args()
+    write("logic_framepump.py", FRAMEPUMP_SRC)
+    ast.parse(FRAMEPUMP_SRC)
+    print("[OK] logic_framepump.py written")
 
-    p = Path(args.path)
-    if not p.is_file():
-        print(f"[patch] not a file: {p}")
-        sys.exit(1)
+    p = "logic_tui.py"
+    if not os.path.exists(p):
+        raise SystemExit(f"[FAIL] {p} not found")
+    src = read(p)
+    if MARK in src:
+        print("[SKIP] already patched")
+        return
 
-    original = p.read_text(encoding="utf-8")
+    for needle in ('LOGIC_FRAME_PREFIX = "\\x00VFRAME\\x00"',
+                   "def _merge_sink_and_gen(gen):"):
+        if needle not in src:
+            raise SystemExit(f"[FAIL] expected snippet not found: {needle!r}")
 
-    working = original
-    for name, body in [
-        ("run_threaded_code", NEW_RUN_THREADED),
-        ("show_threads", NEW_SHOW_THREADS),
-    ]:
-        working, err = replace_method(working, name, body, indent=4)
-        if err:
-            print(f"[patch] ERROR: {err}")
-            sys.exit(2)
-        print(f"[patch] replaced {name}")
+    shutil.copy(p, p + ".pre_anim_final")
 
-    # sanity check: must still parse
+    # (a) dead installer: appended at EOF by patch_progress.py -> cut to EOF.
+    # v1 bug: we cut at the END marker which sits mid-banner-line, leaving a
+    # stray ' ====' tail. Cut-to-EOF avoids end-marker math entirely.
+    DEAD_START = "# === vlogic-progress-patch: live frame pump"
+    if DEAD_START in src:
+        src = src[: src.index(DEAD_START)].rstrip() + "\n"
+        print("[OK] removed dead installer block (cut to EOF)")
+    else:
+        print("[INFO] dead installer block not present (fine)")
+
+    # scrub any stray bare '=====' lines (never valid Python, safe to drop)
+    src, n_scrub = re.subn(r"(?m)^[ \t]*=+[ \t]*\n?", "", src)
+    if n_scrub:
+        print(f"[OK] scrubbed {n_scrub} stray separator line(s)")
+
+    # (b) throttled stream fallback in _merge_sink_and_gen
+    src = replace_once(
+        src,
+        "    opened = False\n\n    def drain():\n        nonlocal opened\n",
+        "    opened = False\n"
+        "    last_frame_emit = 0.0\n\n"
+        "    def drain():\n"
+        "        nonlocal opened, last_frame_emit\n",
+        "merger/init",
+    )
+    src = replace_once(
+        src,
+        "            if line.startswith(LOGIC_FRAME_PREFIX):\n"
+        '                LOGIC_LIVE_FRAME["text"] = line[len(LOGIC_FRAME_PREFIX):].rstrip("\\r\\n")\n'
+        '                LOGIC_LIVE_FRAME["seq"] += 1\n'
+        "                continue\n",
+        "            if line.startswith(LOGIC_FRAME_PREFIX):\n"
+        '                body = line[len(LOGIC_FRAME_PREFIX):].rstrip("\\r\\n")\n'
+        '                LOGIC_LIVE_FRAME["text"] = body\n'
+        '                LOGIC_LIVE_FRAME["seq"] += 1\n'
+        '                if not LOGIC_LIVE_FRAME.get("pump"):\n'
+        "                    # vlogic-anim-final: pump missing -> throttled stream frames\n"
+        "                    now = time.monotonic()\n"
+        "                    if now - last_frame_emit >= 1.5:\n"
+        "                        last_frame_emit = now\n"
+        "                        if not opened:\n"
+        '                            chunks.append("\\n\\n<tool_result>\\n")\n'
+        "                            opened = True\n"
+        '                        chunks.append("\\u25b8 " + body + "\\n")\n'
+        "                continue\n",
+        "merger/frame-divert",
+    )
+
+    # (c) hook before the LAST main guard
+    guards = list(re.finditer(r'^if __name__ == ["\']__main__["\']:', src, re.M))
+    if not guards:
+        raise SystemExit("[FAIL] no `if __name__` guard found in logic_tui.py")
+    g = guards[-1]
+    hook = (
+        "import logic_framepump as _vlg_fp  # vlogic-anim-final\n"
+        "_vlg_fp.install_frame_pump(globals())\n\n"
+    )
+    src = src[:g.start()] + hook + src[g.start():]
+    print("[OK] pump hook inserted before main guard")
+
+    src = f"# {MARK}\n" + src
+
     try:
-        ast.parse(working)
+        ast.parse(src)
     except SyntaxError as e:
-        print(f"[patch] ABORT: patched source does not parse: {e}")
-        sys.exit(3)
+        syntax_fail(p, src, e)
 
-    if working == original:
-        print("[patch] no changes needed.")
-        return
-
-    if args.dry_run:
-        print("[patch] dry-run, not writing.")
-        # show a short diff summary
-        print(f"[patch] original bytes: {len(original)} -> new bytes: {len(working)}")
-        return
-
-    backup = p.with_suffix(p.suffix + f".bak_{int(time.time())}")
-    shutil.copy2(p, backup)
-    p.write_text(working, encoding="utf-8")
-    print(f"[patch] wrote {p}")
-    print(f"[patch] backup: {backup}")
+    write(p, src)
+    print(f"[OK] {p} patched (backup: logic_tui.py.pre_anim_final)")
+    print("\nRestart the app. On startup you should see:")
+    print("  [vlogic-pump] hooked into <YourApp>.on_mount")
+    print("  [vlogic-pump] frame widget installed (bottom-docked)")
+    print("Then run an install: an amber '▸ ...' line animates at the bottom.")
 
 
 if __name__ == "__main__":

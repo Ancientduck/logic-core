@@ -20,7 +20,11 @@
 - **Memory Subsystem (`logic_memory_manager.py`, `memory/`)**: Tiered SQLite + FTS + Chroma vector database.
 
 ## Reload & Lifecycle Rules
-- **Requires Process Restart**: Any modification to `logic.py`, imported core modules (`tool_router.py`, `validator.py`, `logic_voice.py`), or system prompt templates (`logic_prompt.py`).
+- **Requires Process Restart / Hot Reload**: Any modification to `logic.py`, imported core modules (`tool_router.py`, `validator.py`, `logic_voice.py`), or system prompt templates (`logic_prompt.py`).
+- **Pre-Reload Syntax Verification**:
+  - NEVER trigger restart without verifying modified files first.
+  - Run `python -m py_compile <file>` or `ast.parse(open(<file>, encoding='utf-8').read())`.
+  - Only execute restart via `<tool>{"name":"self_reload","args":[]}</tool>` if compilation succeeds without syntax errors (invoked exactly as a standard tool call).
 - **No Restart Needed (Live Execution)**:
   - Standalone tools in `logic_tools/`: Modifying existing tool scripts takes effect immediately on next execution.
   - Skills in `logic_skills/<name>/skill.md`: Managed live via `read_skill` tool without restarts.

@@ -68,14 +68,13 @@ def load_temp_history():
         except OSError:
             pass
 
-
 def self_restart():
-    save_for_restart()
-    sys.stdout.flush()
-    sys.stderr.flush()
-    sys.exit(42)
-
-
+    try:
+        save_for_restart()
+    finally:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(42)
 
 sys.stdout.reconfigure(encoding='utf-8')
 sys.stderr.reconfigure(encoding='utf-8')
@@ -331,7 +330,7 @@ class Base_AI():
             # Add this block to pass safety settings to Gemini via the OpenAI SDK
 
             extra_body={
-                "safety_settings": [
+                "safetySettings": [
                     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
                     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
                     {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -620,6 +619,7 @@ class Base_AI():
             "dispatch": self.dispatch,
             "read_skill": self.read_skill,
             "read_credential": self.read_credential,
+            "self_reload": self.self_reload
         }
 
         if not is_code:
@@ -655,6 +655,10 @@ class Base_AI():
             elif exe_mode == 'thread':
                 yield from self.run_threaded_code(self.code_block)
             is_code = False
+
+    def self_reload(self, args=None):
+        yield "Restarting LOGIC..."
+        self_restart()
 
     
     def dispatch(self, args):
