@@ -12,6 +12,9 @@ def get_local_day_schedule(date_arg='today'):
         local_tz = datetime.timezone(datetime.timedelta(hours=6))
         local_now = datetime.datetime.now(local_tz)
         
+        if date_arg and isinstance(date_arg, str) and date_arg.lower() in ('today', 'now'):
+            date_arg = None
+        
         if date_arg:
             target = datetime.datetime.fromisoformat(date_arg).replace(tzinfo=local_tz)
         else:

@@ -25,14 +25,14 @@ logging.getLogger("urllib3").setLevel(logging.CRITICAL)
 # ============================================================
 DEBUG_PORT = 9222
 USER_DATA_DIR = r"C:\Users\USER\AppData\Local\Google\Chrome\AutomationProfile"
-LOCK_PORT = 9301          # held ONLY while a send is in progress (no daemon)
-CHROMEDRIVER_PATH = r""   # e.g. r"C:\tools\chromedriver.exe" — leave "" for auto-detect
+LOCK_PORT = 9301
+CHROMEDRIVER_PATH = r""
 
 SIGNATURE = "-LOGIC, Apurbo's AI companion"
 
 
 # ============================================================
-#  SINGLE-INSTANCE LOCK (only exists during a send, then gone)
+#  SINGLE-INSTANCE LOCK
 # ============================================================
 class SendLock:
     def __enter__(self):
@@ -49,9 +49,7 @@ class SendLock:
 
 
 # ============================================================
-#  CHROME LIFECYCLE — no daemon, no 24/7 anything.
-#  Chrome (detached) stays open like a normal browser;
-#  each run attaches to it, sends, and the script exits.
+#  CHROME LIFECYCLE
 # ============================================================
 def is_debug_chrome_running():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -66,7 +64,6 @@ def make_driver(options):
 
 
 def apply_perf_tuning(driver):
-    """Block trackers + heavy media via CDP. Messenger's own API (graph.facebook.com) is NOT blocked."""
     try:
         driver.execute_cdp_cmd('Network.enable', {})
     except Exception:
@@ -74,9 +71,7 @@ def apply_perf_tuning(driver):
 
 
 def _common_perf_options(options):
-    # 'none' = don't wait for full page load; we wait for the UI element we need instead
     options.page_load_strategy = 'none'
-    #options.add_argument("--blink-settings=imagesEnabled=false")  # biggest byte saver
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--disable-features=Translate,MediaRouter,OptimizationHints,TranslateUI")
     return options
@@ -84,24 +79,21 @@ def _common_perf_options(options):
 
 def launch_new_chrome():
     options = Options()
-    options.add_experimental_option("detach", True)  # Chrome survives after script exits
+    options.add_experimental_option("detach", True)
     options.add_experimental_option("prefs", {
-        "session.restore_on_startup": 4,   # 4 = open a specific set of pages
+        "session.restore_on_startup": 4,
         "session.startup_urls": ["https://www.messenger.com"],
     })
     options.add_argument(f"user-data-dir={USER_DATA_DIR}")
     options.add_argument(f"--remote-debugging-port={DEBUG_PORT}")
-    # startup baggage
     options.add_argument("--no-first-run")
     options.add_argument("--no-default-browser-check")
-    #options.add_argument("--disable-extensions")
     options.add_argument("--disable-background-networking")
     options.add_argument("--disable-component-update")
     options.add_argument("--disable-sync")
     options.add_argument("--disable-session-crashed-bubble")
     options.add_argument("--hide-crash-restore-bubble")
     options = _common_perf_options(options)
-
     driver = make_driver(options)
     apply_perf_tuning(driver)
     return driver
@@ -111,7 +103,6 @@ def attach_to_existing_chrome():
     options = Options()
     options.add_experimental_option("debuggerAddress", f"localhost:{DEBUG_PORT}")
     options = _common_perf_options(options)
-
     driver = make_driver(options)
     apply_perf_tuning(driver)
     return driver
@@ -120,9 +111,11 @@ def attach_to_existing_chrome():
 def get_driver():
     if is_debug_chrome_running():
         try:
-            return attach_to_existing_chrome()
+            d = attach_to_existing_chrome()
+            _ = d.current_url
+            return d
         except Exception:
-            pass  # stale debug port — fall through to a fresh launch
+            pass
     return launch_new_chrome()
 
 
@@ -135,7 +128,6 @@ def find_messenger_tab(driver):
 
 
 def close_chrome():
-    """Optional cleanup: run with --close to shut the automation Chrome down."""
     if is_debug_chrome_running():
         try:
             attach_to_existing_chrome().quit()
@@ -147,38 +139,119 @@ def close_chrome():
 
 
 # ============================================================
-#  WAITING — wait for hydration signal, not page load
+#  WAITING
 # ============================================================
-def wait_for_messenger_ready(driver, timeout=60):
-    """Don't wait for page load — wait until the app shell is actually interactive."""
+def wait_for_messenger_ready(driver, timeout=30):
     wait = WebDriverWait(driver, timeout, poll_frequency=0.1,
                          ignored_exceptions=(StaleElementReferenceException,))
     wait.until(EC.presence_of_element_located(
-        (By.CSS_SELECTOR, "div[role='navigation']")))   # sidebar = app hydrated
+        (By.CSS_SELECTOR, "div[role='navigation']")))
     return wait
+
+
+def wait_for_thread_url(driver, thread_id, timeout=6):
+    """Wait until the browser is actually on the target thread."""
+    try:
+        WebDriverWait(driver, timeout, poll_frequency=0.05,
+                      ignored_exceptions=(StaleElementReferenceException,)).until(
+            lambda d: thread_id in d.current_url)
+        return True
+    except Exception:
+        return False
+
+
+def wait_for_composer_mounted(driver, timeout=6):
+    """Wait until the composer element exists (any state)."""
+    try:
+        WebDriverWait(driver, timeout, poll_frequency=0.05,
+                      ignored_exceptions=(StaleElementReferenceException,)).until(
+            lambda d: get_composer_state(d)[0] != 'missing')
+        return True
+    except Exception:
+        return False
+
+
+# ============================================================
+#  DATA PATHS
+# ============================================================
+DATA_DIR = Path(__file__).resolve().parent / "messenger_data"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+NICKNAMES_FILE = DATA_DIR / "messenger_nicknames.json"
+INBOX_URLS_FILE = DATA_DIR / "messenger_inbox_urls.json"
+
+
+def load_nicknames():
+    if NICKNAMES_FILE.exists():
+        try:
+            with open(NICKNAMES_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+        except Exception:
+            pass
+    return {}
+
+
+def load_inbox_urls():
+    if INBOX_URLS_FILE.exists():
+        try:
+            with open(INBOX_URLS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+        except Exception:
+            pass
+    return {}
+
+
+def save_nickname(nickname, real_name):
+    if not nickname or not real_name:
+        return
+    key = nickname.strip().lower()
+    val = real_name.strip()
+    if not key or not val or key == val.lower():
+        return
+    try:
+        nicks = load_nicknames()
+        if nicks.get(key) != val:
+            nicks[key] = val
+            with open(NICKNAMES_FILE, "w", encoding="utf-8") as f:
+                json.dump(nicks, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        print(f"[WARN] Failed to save nickname: {e}")
+
+
+def save_inbox_url(real_name, url):
+    if not real_name or not url or "/t/" not in url:
+        return
+    key = real_name.strip().lower()
+    if not key:
+        return
+    try:
+        urls = load_inbox_urls()
+        if urls.get(key) != url:
+            urls[key] = url
+            with open(INBOX_URLS_FILE, "w", encoding="utf-8") as f:
+                json.dump(urls, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        print(f"[WARN] Failed to save inbox URL: {e}")
 
 
 # ============================================================
 #  NAMING / MATCHING
 # ============================================================
-nick_names = {
-    "২ নম্বার খাঁটি মাল (•̀ᴗ•́)": "Hamim hossine",
-    "Niggacetti": "Hasan Yamin Hisham",
-    "vaiya": "Shahriyer Oishorjo",
-}
-
-
 def resolve_identifiers(input_name):
+    nick_map = load_nicknames()
     input_lower = input_name.strip().lower()
     sidebar_aliases = [input_lower]
     real_search_name = input_name.strip()
 
-    for nick, real in nick_names.items():
+    for nick, real in nick_map.items():
         if input_lower in nick.lower() or nick.lower() in input_lower:
             sidebar_aliases += [nick.lower(), real.lower()]
             return real, sidebar_aliases
 
-    for nick, real in nick_names.items():
+    for nick, real in nick_map.items():
         if input_lower in real.lower() or real.lower() in input_lower:
             sidebar_aliases += [nick.lower(), real.lower()]
             return real, sidebar_aliases
@@ -202,20 +275,148 @@ def get_conversation_header_text(driver):
     return ""
 
 
-def matches_header(header_text, aliases, real_search_name):
-    if not header_text:
+def clean_display_name(text):
+    if not text:
+        return ""
+    return re.sub(r"^(conversation with|conversation titled|chat with)\s*",
+                  "", text.strip(), flags=re.I).strip()
+
+
+def get_composer_state(driver):
+    """Returns (state, name):
+        ('named', 'Real Name')  composer has 'Write to <Name>'
+        ('self', '')            composer has bare 'Write to ' (self-chat)
+        ('missing', '')         composer element not present yet
+    """
+    try:
+        result = driver.execute_script("""
+            let all = document.querySelectorAll('[aria-label]');
+            for (let i = 0; i < all.length; i++) {
+                let a = all[i].getAttribute('aria-label');
+                if (a && a.startsWith('Write to')) return a;
+            }
+            return null;
+        """)
+        if result is None:
+            return ('missing', '')
+        stripped = re.sub(r"^Write to\s*", "", result, flags=re.I).strip()
+        if not stripped or stripped.lower() in ("actions", "message", "send"):
+            return ('self', '')
+        return ('named', stripped)
+    except Exception:
+        return ('missing', '')
+
+
+def get_composer_recipient_name(driver):
+    state, name = get_composer_state(driver)
+    return name if state == 'named' else ""
+
+
+def get_window_title_name(driver):
+    try:
+        raw_title = driver.title or ""
+        clean_title = re.sub(r"^\(\d+\)\s*", "", raw_title)
+        clean_title = re.sub(r"\s*\|\s*Messenger.*$", "", clean_title, flags=re.I).strip()
+        if clean_title.lower() not in ("", "messenger", "chats"):
+            return clean_title
+    except Exception:
+        pass
+    return ""
+
+
+def _matches_any(name, aliases, real_search_name):
+    if not name:
         return False
-    clean = header_text.lower().replace("conversation with", "").replace(
-        "conversation titled", "").strip()
-    if any(a in clean or clean in a for a in aliases):
+    n = name.lower()
+    if any(a in n or n in a for a in aliases):
         return True
-    if real_search_name.lower() in clean or clean in real_search_name.lower():
+    if real_search_name and (real_search_name.lower() in n or n in real_search_name.lower()):
         return True
-    for nick, real in nick_names.items():
-        if (nick.lower() in clean or clean in nick.lower()) and \
-           real.lower() == real_search_name.lower():
-            return True
     return False
+
+
+def _is_distinct_alias(alias, recipient_name):
+    if not alias or not recipient_name:
+        return False
+    a = alias.strip().lower()
+    r = recipient_name.strip().lower()
+    if not a or not r or a == r:
+        return False
+    if a in r or r in a:
+        return False
+    return True
+
+
+def get_current_recipient(driver, aliases, real_search_name, prev_composer="", known_label="", timeout=6):
+    """Full verification flow. Polls for:
+      - 'named' composer matching aliases, OR
+      - 'named' composer changed from prev_composer, OR
+      - 'self' composer (self-chat) with title matching aliases.
+    """
+    def _poll(d):
+        state, name = get_composer_state(d)
+
+        if state == 'named':
+            if _matches_any(name, aliases, real_search_name):
+                return ('composer', name)
+            if name.lower() != (prev_composer or "").lower():
+                return ('composer', name)
+            return None
+
+        if state == 'self':
+            title = get_window_title_name(d)
+            if title and _matches_any(title, aliases, real_search_name):
+                return ('self', title)
+            return None
+
+        return None
+
+    try:
+        src, name = WebDriverWait(driver, timeout, poll_frequency=0.05,
+                                  ignored_exceptions=(StaleElementReferenceException,)).until(_poll)
+        if src == 'self':
+            return name, 'title'
+        return name, src
+    except Exception:
+        pass
+
+    title = get_window_title_name(driver)
+    if title and _matches_any(title, aliases, real_search_name):
+        return title, 'title'
+
+    if known_label:
+        return known_label, 'label'
+    return '', 'none'
+
+
+def check_current_thread(driver, aliases, real_search_name):
+    state, name = get_composer_state(driver)
+    if state == 'named' and _matches_any(name, aliases, real_search_name):
+        return name
+    title = get_window_title_name(driver)
+    if title and _matches_any(title, aliases, real_search_name):
+        return title
+    return ""
+
+
+def learn_and_cache(driver, aliases, recipient_name):
+    if not recipient_name:
+        return
+
+    for alias in aliases:
+        if _is_distinct_alias(alias, recipient_name):
+            save_nickname(alias, recipient_name)
+
+    header_clean = clean_display_name(get_conversation_header_text(driver))
+    if _is_distinct_alias(header_clean, recipient_name):
+        save_nickname(header_clean, recipient_name)
+
+    try:
+        url = driver.current_url
+        if "/t/" in url:
+            save_inbox_url(recipient_name, url)
+    except Exception:
+        pass
 
 
 def extract_chat_title_from_row(row):
@@ -229,7 +430,7 @@ def extract_chat_title_from_row(row):
             if lbl:
                 labels.append(lbl)
         for lbl in labels:
-            clean = re.sub(r"^(conversation with|chat with)\s*", "", lbl, flags=re.I).strip()
+            clean = clean_display_name(lbl)
             clean = re.sub(r",\s*\d+\s*unread.*$", "", clean, flags=re.I).strip()
             if clean:
                 return clean.lower()
@@ -246,8 +447,30 @@ def extract_chat_title_from_row(row):
     return ""
 
 
+def try_select_by_target_url(driver, target_url):
+    if not target_url or "/t/" not in target_url:
+        return False
+    thread_id = target_url.rstrip("/").split("/")[-1]
+    if not thread_id:
+        return False
+    if thread_id in driver.current_url:
+        return True
+    try:
+        links = driver.find_elements(By.CSS_SELECTOR, f"a[href*='{thread_id}']")
+        for link in links:
+            if link.is_displayed():
+                driver.execute_script("arguments[0].click();", link)
+                return True
+        if links:
+            driver.execute_script("arguments[0].click();", links[0])
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def try_select_from_sidebar(driver, aliases):
-    wait = WebDriverWait(driver, 10, poll_frequency=0.1,
+    wait = WebDriverWait(driver, 5, poll_frequency=0.1,
                          ignored_exceptions=(StaleElementReferenceException,))
 
     def get_rows(d):
@@ -264,7 +487,7 @@ def try_select_from_sidebar(driver, aliases):
     try:
         rows = wait.until(lambda d: get_rows(d) or False)
     except Exception:
-        return False
+        return ""
 
     for row in rows:
         try:
@@ -278,37 +501,36 @@ def try_select_from_sidebar(driver, aliases):
                 if sub:
                     target = sub[0]
                 driver.execute_script("arguments[0].click();", target)
-                return True
+                return title
         except Exception:
             continue
-    return False
+    return ""
 
 
 # ============================================================
-#  TYPING — robust Lexical / contenteditable input + enter
+#  TYPING
 # ============================================================
 def type_message(driver, textbox, text):
     from selenium.webdriver.common.action_chains import ActionChains
     try:
         driver.execute_script("arguments[0].focus();", textbox)
-        time.sleep(0.05)
-        textbox.click()
     except Exception:
         pass
 
     lines = text.split(chr(10))
     actions = ActionChains(driver)
     actions.click(textbox)
-    
+    #*here
     for i, line in enumerate(lines):
         if line:
             actions.send_keys(line)
         if i < len(lines) - 1:
             actions.key_down(Keys.SHIFT).send_keys(Keys.ENTER).key_up(Keys.SHIFT)
-    
-    actions.pause(0.1)
+
     actions.send_keys(Keys.ENTER)
     actions.perform()
+
+
 # ============================================================
 #  CORE SEND
 # ============================================================
@@ -322,69 +544,91 @@ def send_message(name='', msg='', file_path=''):
 
     wait = wait_for_messenger_ready(driver)
 
-    header = get_conversation_header_text(driver)
+    matched = check_current_thread(driver, aliases, real_search_name)
 
-    if not matches_header(header, aliases, real_search_name):
-        # --- attempt 1: sidebar ---
-        old_url = driver.current_url
-        if try_select_from_sidebar(driver, aliases):
+    cached_urls = load_inbox_urls()
+    target_url = cached_urls.get(real_search_name.lower())
+    if not target_url:
+        for alias in aliases:
+            if alias in cached_urls:
+                target_url = cached_urls[alias]
+                break
+
+    # --- attempt 0: cached URL → TRUSTED fast path (no verification) ---
+    if not matched and target_url and "/t/" in target_url:
+        thread_id = target_url.rstrip("/").split("/")[-1]
+        clicked = False
+        if thread_id in driver.current_url:
+            clicked = True
+        elif try_select_by_target_url(driver, target_url):
+            clicked = True
+
+        if clicked:
+            url_ok = wait_for_thread_url(driver, thread_id, timeout=6)
+            composer_ok = wait_for_composer_mounted(driver, timeout=6) if url_ok else False
+            if url_ok and composer_ok:
+                matched = real_search_name
+
+    # --- attempt 1: sidebar text match ---
+    if not matched:
+        prev_composer = get_composer_recipient_name(driver)
+        label = try_select_from_sidebar(driver, aliases)
+        if label:
+            matched, _ = get_current_recipient(
+                driver, aliases, real_search_name,
+                prev_composer=prev_composer, known_label=label, timeout=6)
+            if matched:
+                learn_and_cache(driver, aliases, matched)
+
+    # --- attempt 2: cold full reload ---
+    if (not matched and target_url and "/t/" in target_url
+            and driver.current_url.rstrip("/") != target_url.rstrip("/")):
+        driver.get(target_url)
+        wait = wait_for_messenger_ready(driver)
+        matched, _ = get_current_recipient(driver, aliases, real_search_name, timeout=8)
+        if matched:
+            learn_and_cache(driver, aliases, matched)
+
+    # --- attempt 3: search bar ---
+    if not matched:
+        try:
+            search = wait.until(EC.element_to_be_clickable(
+                (By.CSS_SELECTOR,
+                 "input[placeholder='Search Messenger'], input[aria-label='Search Messenger']")))
+            search.click()
+            search.send_keys(Keys.CONTROL, "a")
+            search.send_keys(Keys.BACKSPACE)
+            search.send_keys(real_search_name)
+
+            wait_search = WebDriverWait(driver, 8, poll_frequency=0.05,
+                                        ignored_exceptions=(StaleElementReferenceException,))
+            contact = wait_search.until(EC.element_to_be_clickable(
+                (By.XPATH,
+                 "//li[@role='option' and not(contains(@aria-label, 'Search messages'))]")))
+
+            label = contact.get_attribute("aria-label") or contact.text
+            clean = clean_display_name(label).lower()
+            if clean and clean not in aliases:
+                aliases.append(clean)
+
+            prev_composer = get_composer_recipient_name(driver)
             try:
-                WebDriverWait(driver, 5, poll_frequency=0.1).until(
-                    lambda d: matches_header(get_conversation_header_text(d), aliases, real_search_name)
-                    or d.current_url != old_url)
+                contact.click()
             except Exception:
-                pass
-            header = get_conversation_header_text(driver)
+                driver.execute_script("arguments[0].click();", contact)
 
-        # --- attempt 2: search bar ---
-        if not matches_header(header, aliases, real_search_name):
-            old_url = driver.current_url
-            try:
-                search = wait.until(EC.element_to_be_clickable(
-                    (By.CSS_SELECTOR, "input[placeholder='Search Messenger']")))
-                search.click()
-                search.send_keys(Keys.CONTROL, "a")
-                search.send_keys(Keys.BACKSPACE)
-                search.send_keys(real_search_name)
+            matched, _ = get_current_recipient(
+                driver, aliases, real_search_name,
+                prev_composer=prev_composer, known_label=clean, timeout=8)
+            if matched:
+                learn_and_cache(driver, aliases, matched)
+        except Exception as e:
+            print(f'[ERROR] Search failed: {e}')
+            return
 
-                wait_search = WebDriverWait(driver, 8, poll_frequency=0.05,
-                                            ignored_exceptions=(StaleElementReferenceException,))
-                contact = wait_search.until(EC.element_to_be_clickable(
-                    (By.XPATH,
-                     "//li[@role='option' and not(contains(@aria-label, 'Search messages'))]")))
-
-                label = contact.get_attribute("aria-label") or contact.text
-                clean = re.sub(r"^(conversation with|chat with)\s*", "", label,
-                               flags=re.I).strip().lower()
-                if clean and clean not in aliases:
-                    aliases.append(clean)
-
-                try:
-                    contact.click()
-                except Exception:
-                    driver.execute_script("arguments[0].click();", contact)
-
-                prev = header.lower().replace("conversation with", "").strip() if header else ""
-
-                def _loaded(d):
-                    h = get_conversation_header_text(d)
-                    if not h:
-                        return False
-                    cur = h.lower().replace("conversation with", "").strip()
-                    if prev and cur == prev and d.current_url == old_url:
-                        return False
-                    return matches_header(h, aliases, real_search_name)
-
-                WebDriverWait(driver, 10, poll_frequency=0.1).until(_loaded)
-                header = get_conversation_header_text(driver)
-
-                if not matches_header(header, aliases, real_search_name):
-                    print(f'[ERROR] Wrong inbox opened (got "{header}"). Message NOT sent.')
-                    print('Ask for the correct name.')
-                    return
-            except Exception as e:
-                print(f'[ERROR] Search failed: {e}')
-                return
+    if not matched:
+        print('[ERROR] Could not open the intended thread. Message NOT sent.')
+        return
 
     # --- type & send ---
     textbox = wait.until(
@@ -396,17 +640,23 @@ def send_message(name='', msg='', file_path=''):
             file_box = wait.until(EC.presence_of_element_located(
                 (By.XPATH, "//input[@type='file']")))
             file_box.send_keys(str(Path(f).resolve()))
-            time.sleep(0.5)  # let the upload attach before sending
+            try:
+                WebDriverWait(driver, 10, poll_frequency=0.1).until(
+                    lambda d: d.find_elements(
+                        By.CSS_SELECTOR,
+                        "[role='textbox'] ~ * [role='button'][aria-label*='Remove'], "
+                        "div[aria-label*='attachment' i], div[aria-label*='Remove' i]"))
+            except Exception:
+                pass
 
     msg = msg.replace("\\n", "\n")
     if SIGNATURE not in msg:
         msg = f"{msg}\n{SIGNATURE}" if msg else f"files sent by {SIGNATURE}"
 
     type_message(driver, textbox, msg)
-    print(f'[SUCCESS] Message sent to {real_search_name} in {time.time() - t0:.1f}s')
+
+    print(f'[SUCCESS] Message sent to {matched} in {time.time() - t0:.1f}s')
     print("==========================================\n")
-    # NOTE: no driver.quit() — detached Chrome stays open for the next run,
-    # and this Python process exits immediately.
 
 
 def send_messages(the_list):
@@ -426,7 +676,6 @@ if __name__ == '__main__':
 
     with SendLock():
         if len(sys.argv) > 2:
-            # script.py "name" "message..."   (may include --close, filtered above)
             send_messages([[sys.argv[1], " ".join(sys.argv[2:])]])
         elif len(sys.argv) > 1:
             try:
@@ -437,8 +686,6 @@ if __name__ == '__main__':
             except Exception as e:
                 print(f'[ERROR] Bad argument: {e}')
         else:
-            # === Manual Testing Section ===
-            # send_message(name='Apurbo', msg='Test single message from LOGIC')
             send_messages([
-                ['apurbo', 'Test message'],
+                ['apurbo', 'Logic Messenger script Test Message'],
             ])

@@ -1,4 +1,5 @@
 
+from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox
 import threading
@@ -222,7 +223,7 @@ class FuturisticMemoryGUI:
         """Connect to ChromaDB in background"""
         def _connect():
             try:
-                self.chroma = chromadb.PersistentClient(path="D:/Ai/logic/memory")
+                self.chroma = chromadb.PersistentClient(path=str(Path(__file__).resolve().parent / 'memory'))
                 self.collection = self.chroma.get_or_create_collection("logic_memory")
                 self.status_label.config(text="● ONLINE", fg=self.success)
                 self.status_text.config(text="CHROMADB CONNECTED // MEMORY MATRIX ACTIVE")

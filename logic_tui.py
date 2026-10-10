@@ -282,7 +282,7 @@ _OPEN_TAG_RE = re.compile(r"<(?P<tag>" + "|".join(TOOL_TAGS + RESULT_TAGS) + r")
 
 
 def normalize_fences(text: str) -> str:
-    text = re.sub(r"```python[ \t]+(?:run|thread)[ \t]*(?=\r?\n)", "```python", text)
+    text = re.sub(r"```python[ \t]+thread[ \t]*(?=\r?\n)", "```python", text)
     text = re.sub(r"```(?!\w+\r?\n|\r?\n|\s|$)", "```\n", text)
     text = re.sub(r"(?<=\S)```", "\n```", text)
     return text
@@ -580,6 +580,8 @@ logic_ai = None
 voice_module = None
 _stop_voice = None
 terminal_code_fn = None
+toggle_voice_mode_fn = None
+get_voice_mode_fn = None
 user_input_queue = None
 logic_hall_module = None
 logic_module_ref = None
@@ -1031,6 +1033,8 @@ if USE_REAL:
         voice_module = getattr(_logic_module, "logic_voice", None)
         _stop_voice = getattr(_logic_module, "stop_voice", lambda: None)
         terminal_code_fn = getattr(_logic_module, "terminal_code", None)
+        toggle_voice_mode_fn = getattr(_logic_module, "toggle_voice_mode", None)
+        get_voice_mode_fn = getattr(_logic_module, "get_voice_mode", None)
         user_input_queue = getattr(_logic_module, "user_input_queue", queue.Queue())
         logic_model_name = (
             getattr(_logic_module, "MODEL", None)
@@ -1073,6 +1077,8 @@ if USE_REAL:
         user_input_queue = None
         _stop_voice = None
         terminal_code_fn = None
+        toggle_voice_mode_fn = None
+        get_voice_mode_fn = None
         logic_model_name = "simulation"
 
 
@@ -2949,6 +2955,11 @@ class LogicTUI(App):
         self._send_system_greeting()
         self.set_interval(HALL_DRAIN_INTERVAL, self._drain_hall_stream_queue)
         self.set_interval(0.25, self._background_poll)
+        try:
+            import threading as _threading
+            _threading.Thread(target=self._voice_listen_loop, daemon=True).start()
+        except Exception:
+            pass
 
     def _ensure_hall_hooks(self) -> None:
         if not (USE_REAL and logic_hall_module):
@@ -3386,6 +3397,37 @@ class LogicTUI(App):
         self._mount_chat_msg("SYS", injected)
         self._queue_or_dispatch_prompt(injected)
 
+    def _voice_listen_loop(self) -> None:
+        """Daemon thread: while backend voice_mode is True, capture mic and
+        push transcripts into user_input_queue for normal dispatch."""
+        import time as _time
+        get_voice_fn = getattr(logic_module_ref, "get_voice", None) if logic_module_ref else None
+        if get_voice_fn is None:
+            try:
+                from user_voice import get_voice as get_voice_fn  # type: ignore
+            except Exception:
+                get_voice_fn = None
+        if get_voice_fn is None or user_input_queue is None:
+            return
+        while True:
+            try:
+                mode_on = bool(get_voice_mode_fn()) if callable(get_voice_mode_fn) else False
+            except Exception:
+                mode_on = False
+            if not mode_on:
+                _time.sleep(0.25)
+                continue
+            try:
+                text = get_voice_fn()
+            except Exception:
+                _time.sleep(0.5)
+                continue
+            if text:
+                try:
+                    user_input_queue.put(text)
+                except Exception:
+                    pass
+
     def _background_poll(self) -> None:
         if user_input_queue is not None:
             try:
@@ -3528,6 +3570,12 @@ class LogicTUI(App):
                     logic_ai.reset_chat()
                 self._mount_chat_msg("SYS", "Conversation history compacted.")
                 self._update_hud()
+            elif cmd == "/v":
+                if USE_REAL and callable(toggle_voice_mode_fn):
+                    state = toggle_voice_mode_fn()
+                else:
+                    state = "simulated"
+                self._mount_chat_msg("SYS", f"Voice mode: {'ON' if state is True else ('OFF' if state is False else state)}")
             elif cmd == "/hall":
                 self._set_tab("pane-hall")
             elif cmd == "/chat":

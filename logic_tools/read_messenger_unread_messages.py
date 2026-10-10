@@ -1,3 +1,4 @@
+from pathlib import Path
 import os, sys
 from playwright.sync_api import sync_playwright
 import psutil, re, time
@@ -24,13 +25,22 @@ DEBUG_PORT = 9222
 HEADLESS = True
 MAX_MSGS = 10
 
-nick_names = {
-    "২ নম্বার খাঁটি মাল (•̀ᴗ•́)": "Hamim hossine",
-    "Niggacetti": "Hasan Yamin Hisham",
-    "vaiya": "Shahriyer Oishorjo",
-}
+DATA_DIR = str(Path(__file__).resolve().parent.parent / 'logic_tools' / 'messenger_data')
+NICKNAMES_FILE = os.path.join(DATA_DIR, "messenger_nicknames.json")
+INBOX_URLS_FILE = os.path.join(DATA_DIR, "messenger_inbox_urls.json")
+
+def load_nicknames():
+    try:
+        if os.path.exists(NICKNAMES_FILE):
+            import json
+            with open(NICKNAMES_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
 
 def resolve_name(input_name):
+    nick_names = load_nicknames()
     """Return (search_name, list_of_sidebar_aliases_lowercase)."""
     low = input_name.strip().lower()
     aliases = [low]

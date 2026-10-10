@@ -6,7 +6,7 @@ import time
 
 def ask_search_net(query, retries=3):
     url = "https://ydc-index.io/v1/search"
-    api_key = os.getenv("YDC_API_KEY", "")
+    api_key = os.getenv("YOU_API_KEY", "")
 
     payload = {
         "query": query,

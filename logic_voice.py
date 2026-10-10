@@ -28,6 +28,7 @@ speak_queue = queue.Queue()
 overlay_queue = queue.Queue()
 
 interrupted = False
+LAST_SPOKEN = ""
 enable_overlay = False
 overlay_instance = None
 root = None
@@ -255,7 +256,8 @@ def speak_async(text):
     if not text.strip():
         return
 
-    global interrupted
+    global interrupted, LAST_SPOKEN
+    LAST_SPOKEN = text or ""
 
     interrupted = False
 
@@ -266,7 +268,8 @@ def speak_async(text):
 
 
 def speak_stream(text):
-    global interrupted
+    global interrupted, LAST_SPOKEN
+    LAST_SPOKEN = text or ""
 
     if not text.strip():
         return

@@ -40,6 +40,10 @@ import threading
 import time
 from io import BytesIO
 
+from deep_web_api import DeepSeekWebProvider
+
+
+
 temp_history_path = os.path.join(tempfile.gettempdir(),"reload_history.json")
 restored = False
 
@@ -100,7 +104,7 @@ BASE_URL = os.getenv("BASE_URL", "http://localhost:20128/v1")
 #MODEL = "agn/agnes-3.0-flash"
 
 #MODEL = "cl/cline-free/gemini-3.8-flash"
-MODEL = os.getenv("MODEL", "antigravity/gemini-3.7-flash-tiered")
+MODEL = ""
 
 print(f'model in use: {MODEL}')
 
@@ -112,99 +116,18 @@ MODEL_NAME_GROQ = os.getenv("MODEL_NAME_GROQ", "openai/gpt-oss-120b")
 
 the_console = Console()
 
-# ===== Omniroute bootstrap =====
-import socket
-import subprocess
-import sys
-import time
-import atexit
-
-OMNROUTE_URL = "http://127.0.0.1:20128/v1"
-OMNROUTE_HOST = "127.0.0.1"
-OMNROUTE_PORT = 20128
-
-OMNROUTE_START_TIMEOUT = 10
-OMNROUTE_POLL_INTERVAL = 0.1
-
-omniroute_proc = None
-
-
-def _is_omniroute_running():
-    try:
-        with socket.create_connection(
-            (OMNROUTE_HOST, OMNROUTE_PORT),
-            timeout=0.2
-        ):
-            return True
-    except OSError:
-        return False
-
-
-def _wait_for_omniroute():
-    deadline = time.monotonic() + OMNROUTE_START_TIMEOUT
-
-    while time.monotonic() < deadline:
-        if _is_omniroute_running():
-            return True
-
-        time.sleep(OMNROUTE_POLL_INTERVAL)
-
-    return False
-
-
-def ensure_omniroute():
-    global omniroute_proc
-
-    if _is_omniroute_running():
-        print("[Omniroute] Already active — skipping startup.")
-        return
-
-    print("[Omniroute] Not detected. Starting omniroute...")
-
-    try:
-        omniroute_proc = subprocess.Popen(
-            ["omniroute"],
-            shell=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
-        )
-
-    except FileNotFoundError:
-        print("[Omniroute] ERROR: 'omniroute' command not found.")
-        sys.exit(1)
-
-    if _wait_for_omniroute():
-        print("[Omniroute] Ready.")
-    else:
-        print(
-            f"[Omniroute] ERROR: Timed out after "
-            f"{OMNROUTE_START_TIMEOUT}s."
-        )
-
-        if omniroute_proc:
-            omniroute_proc.terminate()
-
-        sys.exit(1)
-
-
-def cleanup_omniroute():
-    global omniroute_proc
-
-    if omniroute_proc is not None and omniroute_proc.poll() is None:
-        print("[Omniroute] Shutting down...")
-        omniroute_proc.terminate()
-        omniroute_proc = None
-
-
-ensure_omniroute()
-atexit.register(cleanup_omniroute)
-# ===== End Omniroute bootstrap =====
+web_deepseek = DeepSeekWebProvider(
+    model="default",
+    thinking=False,
+    search=False,
+)
 
 client = OpenAI(
     api_key=API_KEY,
     base_url=BASE_URL,
-    default_headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    default_headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    },
 )
 
 
@@ -212,22 +135,29 @@ Code_MODEL = ''
 class OpenAIChunkWrapper:
     def __init__(self, text):
         self.text = text
+
+
 class OpenAIChatSession:
-    def __init__(self, client, model, system_instruction, history=None, temperature=1.0, top_p=0.9,extra_body=None):
-        self.client = client
+    def __init__(self, client, model, system_instruction, history=None,
+                 temperature=1.0, top_p=0.9, extra_body=None):
+        self.client = web_deepseek                      # DeepSeekWebProvider
         self.model = model
-        self.system_instruction = system_instruction
+        self.system_prompt = system_instruction
         self.history = history or []
         self.temperature = temperature
         self.top_p = top_p
         self.extra_body = extra_body
+        self.first_message = True
+        self.chat = client.create_session()
+
     def get_history(self):
         history_text = ""
         for msg in self.history:
             role = msg.get("role")
             content = msg.get("content")
             if isinstance(content, list):
-                text_parts = [part.get("text", "") for part in content if part.get("type") == "text"]
+                text_parts = [part.get("text", "") for part in content
+                              if part.get("type") == "text"]
                 content_str = " ".join(text_parts)
             else:
                 content_str = str(content)
@@ -235,54 +165,34 @@ class OpenAIChatSession:
         return history_text
 
     def send_message_stream(self, prompt):
-        user_content = []
-        if isinstance(prompt, list):
-            for part in prompt:
-                if isinstance(part, str):
-                    user_content.append({"type": "text", "text": part})
-                elif hasattr(part, "save"):  # Converts screenshot PIL images automatically
-                    buffered = BytesIO()
-                    part.save(buffered, format="JPEG")
-                    img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-                    user_content.append({
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{img_str}"
-                        }
-                    })
+        if self.first_message:
+            context_lines = []
+            for msg in self.history:
+                role = msg.get("role")
+                content = msg.get("content")
+                if isinstance(content, list):
+                    content = " ".join(
+                        p.get("text", "") for p in content if p.get("type") == "text"
+                    )
+                context_lines.append(f"{role}: {content}")
+
+            parts = [self.system_prompt]
+            if context_lines:
+                parts.append("[PRIOR CONTEXT]\n" + "\n".join(context_lines))
+            parts.append(prompt)
+            full_prompt = "\n\n".join(parts)
+            self.first_message = False
         else:
-            user_content = prompt
+            full_prompt = prompt
 
-        self.history.append({"role": "user", "content": user_content})
-
-        messages = [{"role": "system", "content": self.system_instruction}]
-        messages.extend(self.history)
-
-        stream = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=self.temperature,
-            top_p=self.top_p,
-            stream=True,
-            extra_body=self.extra_body,
-            #reasoning_effort="medium", #*here
-            # extra_body={
-            #     "reasoning_effort": "none"
-            # },
-            
-        )
+        self.history.append({"role": "user", "content": full_prompt})
 
         full_reply = ""
-        for chunk in stream:
-            if chunk.choices:
-                delta = chunk.choices[0].delta
-                content = getattr(delta, "content", None)
-                if content is not None:
-                    full_reply += content
-                    yield OpenAIChunkWrapper(content)
+        for chunk in self.chat.respond(full_prompt, stream=True, thinking=False,search=False):
+            full_reply += chunk
+            yield OpenAIChunkWrapper(chunk)
 
         self.history.append({"role": "assistant", "content": full_reply})
-
 
     def clean_history(self):
         cleaned = []
@@ -290,7 +200,8 @@ class OpenAIChatSession:
             role = msg.get('role')
             content = msg.get('content')
             if isinstance(content, list):
-                text_parts = [part.get('text', '') for part in content if part.get('type') == 'text']
+                text_parts = [part.get('text', '') for part in content
+                              if part.get('type') == 'text']
                 content_str = ' '.join(text_parts)
             else:
                 content_str = str(content)
@@ -301,6 +212,13 @@ class OpenAIChatSession:
             cleaned.append(msg)
 
         self.history = cleaned
+
+    def rebuild(self, history=None):
+        """Drop the live DeepSeek session and open a fresh one.
+        Keeps the same provider/model/system prompt; optionally seeds history."""
+        self.history = history if history is not None else []
+        self.first_message = True
+        self.chat = self.client.create_session()
 
 
 def _get_hwnds_for_pid(pid):
@@ -322,23 +240,29 @@ def _get_hwnds_for_pid(pid):
 class Base_AI():
     def __init__(self):
 
-        self.chat = OpenAIChatSession(
-            client=client,
-            model=MODEL,
-            system_instruction=build_system_prompt(),
-            temperature=0.3,
-            top_p=0.9,
-            # Add this block to pass safety settings to Gemini via the OpenAI SDK
+        # self.chat = OpenAIChatSession(
+        #     client=client,
+        #     model=MODEL,
+        #     system_instruction=build_system_prompt(),
+        #     temperature=0.3,
+        #     top_p=0.9,
+        #     # Add this block to pass safety settings to Gemini via the OpenAI SDK
 
-            extra_body={
-                "safetySettings": [
-                    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-                    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                    {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "BLOCK_NONE"}
-                ]
-            }
+        #     extra_body={
+        #         "safetySettings": [
+        #             {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+        #             {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+        #             {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+        #             {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+        #             {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "BLOCK_NONE"}
+        #         ]
+        #     }
+        # )
+
+        self.chat = OpenAIChatSession(
+            client=web_deepseek,
+            model="expert",
+            system_instruction=build_system_prompt(),
         )
 
         
@@ -361,23 +285,20 @@ class Base_AI():
         
     def reset_chat(self):
             self.clean_history()
-            history = self.chat.get_history()  # cleaner, no tool call clutter
+            history = self.chat.get_history()
             print(f'new_history= \n {history}')
 
-            summary = groq_caller.call_groq(f'summarize this conversation briefly. ignore anything in relevant memory:\n{history}')
-            #print(f'\n**{summary}**\n')
-            memorymanager.reset_sent()
-            self.chat = OpenAIChatSession(
-                client=client,
-                model=MODEL,
-                system_instruction=build_system_prompt(),
-                history=[
-                    {"role": "user", "content": "[session context]"},
-                    {"role": "assistant", "content": f"Summary of prior conversation:\n{summary}"}
-                ],
-                temperature=1.0,
-                top_p=0.9
+            summary = groq_caller.call_groq(
+                f'summarize this conversation briefly. ignore anything in relevant memory:\n{history}'
             )
+            memorymanager.reset_sent()
+
+            summary = summary or "(no prior summary)"
+            self.chat.rebuild(history=[
+                {"role": "user", "content": "[session context]"},
+                {"role": "assistant", "content": f"Summary of prior conversation:\n{summary}"}
+            ])
+            print("[SYS] chat session rebuilt with summary seed.")
     
     def session_saver(self):
         self.clean_history()
@@ -478,8 +399,8 @@ class Base_AI():
         if activity_report:
             final_prompt += f'\n{activity_report}'
 
-        if not prompt.startswith("SCRIPT_RESULT:") or not prompt.startswith("relevant_memory:"):
-            possible_tool = guess_tool(f'{prompt}')
+        if not prompt.startswith("SCRIPT_RESULT:"):
+            possible_tool = guess_tool(f'{final_prompt}\n{prompt}')
 
         if possible_tool:
             final_prompt += f'\ntool_reminder:[{possible_tool}]'
@@ -564,7 +485,7 @@ class Base_AI():
 
                 break
 
-            except OpenAIError as e:
+            except Exception as e:
                 print(f"\n{e}\n")
                 is_code = False
                 in_code = False
@@ -588,7 +509,7 @@ class Base_AI():
         # '''
 
         pattern = r'''
-            ```python[ \t]*(thread|show)?[ \t]*\n
+            ```python[ \t]+(run|thread)[ \t]*\n
             (.*?)
             ^[ \t]*```[ \t]*$
         '''
@@ -599,8 +520,9 @@ class Base_AI():
             ai_reply,
             re.DOTALL | re.MULTILINE | re.VERBOSE
         )
+
         if match:
-            mode = match.group(1) or "run"      # None → "run"
+            exe_mode = match.group(1)
             self.code_block = match.group(2)
             is_code = True
 
@@ -650,11 +572,10 @@ class Base_AI():
                     )
                 
         if is_code:
-            if mode == "run":
+            if exe_mode == 'run':
                 yield from self.run_gen_code(self.code_block)
-            elif mode == "thread":
+            elif exe_mode == 'thread':
                 yield from self.run_threaded_code(self.code_block)
-            # mode == "show" → do nothing
             is_code = False
 
     def self_reload(self, args=None):
@@ -1245,7 +1166,7 @@ class groq_ai():
     def fallback_summarize(self, prompt):
         try:
             fallback_session = OpenAIChatSession(
-                client=client,
+                client=web_deepseek,
                 model=MODEL,
                 system_instruction="""
     You are a conversation history summarizer.
@@ -1318,7 +1239,7 @@ class Groq_session_ai():
     def fallback_summarize(self, prompt):
         try:
             fallback_session = OpenAIChatSession(
-                client=client,
+                client=web_deepseek,
                 model=MODEL,
                 system_instruction="""
     You are a conversation history summarizer.
@@ -1434,11 +1355,23 @@ restored = load_temp_history()
 
 import datetime
 
+
 from logic_tools.get_schedule import get_local_day_schedule
 
 #print(get_local_day_schedule())
 
 voice_mode = False  # start in text mode
+
+def toggle_voice_mode():
+    """Flip voice input mode. Authoritative source for both CLI and TUI."""
+    global voice_mode
+    voice_mode = not voice_mode
+    return voice_mode
+
+
+def get_voice_mode():
+    """Read current voice input mode flag. Authoritative source for both CLI and TUI."""
+    return voice_mode
 
 def terminal_code(code):
     global voice_mode
@@ -1452,8 +1385,7 @@ def terminal_code(code):
         logic_ai.reset_chat()
 
     elif code == '/v':
-        voice_mode = not voice_mode
-        print(f'[Voice mode {voice_mode}]')
+        print(f'[Voice mode {toggle_voice_mode()}]')
 
     elif code.startswith('/stop'):
         import logic_hall
@@ -1510,7 +1442,7 @@ def terminal_code(code):
             model_name = code.split('/model')[1]
             new_history = logic_ai.chat.history
             logic_ai.chat = OpenAIChatSession(
-                        client=client,
+                        client=web_deepseek,
                         model=model_name,
                         system_instruction=build_system_prompt(),
                         history=new_history,

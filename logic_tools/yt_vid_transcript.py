@@ -5,8 +5,27 @@ import glob
 import textwrap
 import sys
 
+def run_ytdlp(base_cmd):
+    attempts = [
+        [],
+        ['--cookies-from-browser', 'edge'],
+        ['--cookies-from-browser', 'chrome'],
+        ['--cookies-from-browser', 'firefox']
+    ]
+    for extra in attempts:
+        cmd = [base_cmd[0]] + extra + base_cmd[1:]
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+            if res.returncode == 0:
+                files = glob.glob('temp_transcript*.vtt')
+                if files:
+                    return True
+        except Exception:
+            continue
+    return False
+
 def get_transcript(url):
-    cmd = [
+    base_cmd = [
         'yt-dlp',
         '--write-subs',
         '--write-auto-subs',
@@ -18,15 +37,9 @@ def get_transcript(url):
         url
     ]
 
-    # Facebook extractor needs the logged-in Chrome session
-    if 'facebook.com' in url or 'fb.watch' in url:
-        cmd[1:1] = ['--cookies-from-browser', 'chrome']
-
-    try:
-        subprocess.run(cmd, check=True, capture_output=True)
-    except subprocess.CalledProcessError:
-        # Fallback to English only if multi-lang fails
-        cmd_fallback = [
+    success = run_ytdlp(base_cmd)
+    if not success:
+        fallback_cmd = [
             'yt-dlp',
             '--write-subs',
             '--write-auto-subs',
@@ -36,15 +49,11 @@ def get_transcript(url):
             '--output', 'temp_transcript',
             url
         ]
-        try:
-            subprocess.run(cmd_fallback, check=True, capture_output=True)
-        except subprocess.CalledProcessError:
-            print("Error: yt-dlp failed to download subtitles. Check the URL.")
-            return
+        success = run_ytdlp(fallback_cmd)
 
     vtt_files = glob.glob('temp_transcript*.vtt')
     if not vtt_files:
-        print("No subtitles available for this video. Nothing to transcribe.")
+        print("No subtitles available or failed to fetch transcript. Check URL or cookies.")
         return
 
     clean_text = []
@@ -56,14 +65,17 @@ def get_transcript(url):
         for line in lines:
             line = line.strip()
             line = re.sub(r'<[^>]*>', '', line)
-            if not line or line == 'WEBVTT' or '-->' in line or line.startswith('Kind:'):
+            if not line or line == 'WEBVTT' or '-->' in line or line.startswith('Kind:') or line.startswith('Language:'):
                 continue
             if line.isdigit():
                 continue
             if line != last_line:
                 clean_text.append(line)
                 last_line = line
-        os.remove(vtt_file)
+        try:
+            os.remove(vtt_file)
+        except OSError:
+            pass
 
     full_text = ' '.join(clean_text)
     full_text = re.sub(r'\s+', ' ', full_text)

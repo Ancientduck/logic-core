@@ -3,592 +3,1543 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LOGIC / VINCI — System Status & Verification Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <title>LOGIC Harness Setup</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap');
+        :root {
+            --bg-base: #06080d;
+            --bg-surface: #0c1017;
+            --bg-card: rgba(17, 24, 39, 0.75);
+            --border-dim: rgba(255, 255, 255, 0.08);
+            --border-glow: rgba(0, 242, 254, 0.4);
+            --accent-cyan: #00f2fe;
+            --accent-blue: #4facfe;
+            --accent-emerald: #10b981;
+            --accent-rose: #f43f5e;
+            --accent-amber: #f59e0b;
+            --accent-purple: #8b5cf6;
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+            --text-faint: #64748b;
+            --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-mono: 'Fira Code', monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
 
         body {
-            font-family: 'Outfit', sans-serif;
-            background-color: #0b0f19;
-            color: #f1f5f9;
-            font-size: 15px;
+            background-color: var(--bg-base);
+            background-image:
+                radial-gradient(ellipse 80% 50% at 50% -20%, rgba(0, 242, 254, 0.12), transparent),
+                radial-gradient(circle at 100% 100%, rgba(79, 172, 254, 0.05), transparent);
+            color: var(--text-main);
+            font-family: var(--font-ui);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+            -webkit-font-smoothing: antialiased;
         }
 
-        code, pre, .mono {
-            font-family: 'JetBrains Mono', monospace;
-        }
-
-        .glass-card {
-            background: rgba(17, 24, 39, 0.85);
+        header {
+            height: 72px;
+            background: rgba(12, 16, 23, 0.85);
             backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-bottom: 1px solid var(--border-dim);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 2rem;
+            position: sticky;
+            top: 0;
+            z-index: 50;
         }
 
-        .glass-card:hover {
-            border-color: rgba(99, 102, 241, 0.35);
+        .brand-cluster {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
         }
 
-        .guide-step {
-            counter-increment: step-counter;
-        }
-
-        .guide-step::before {
-            content: counter(step-counter);
-            position: absolute;
-            left: -14px;
-            top: 2px;
-            width: 26px;
-            height: 26px;
-            border-radius: 50%;
-            background: #4f46e5;
-            color: white;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 12px;
-            font-weight: 700;
+        .brand-badge {
+            width: 38px;
+            height: 38px;
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+            border-radius: 10px;
             display: flex;
             align-items: center;
             justify-content: center;
+            box-shadow: 0 0 20px rgba(0, 242, 254, 0.35);
+        }
+
+        .brand-badge svg {
+            width: 22px;
+            height: 22px;
+            color: #000;
+        }
+
+        .brand-title {
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: -0.02em;
+        }
+
+        .brand-subtitle {
+            font-size: 0.72rem;
+            font-family: var(--font-mono);
+            color: var(--accent-cyan);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .folder-status-bar {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-dim);
+            border-radius: 9999px;
+            padding: 0.35rem 0.85rem 0.35rem 0.75rem;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--accent-rose);
+            box-shadow: 0 0 10px var(--accent-rose);
+            transition: all 0.3s;
+        }
+
+        .status-dot.active {
+            background: var(--accent-emerald);
+            box-shadow: 0 0 10px var(--accent-emerald);
+        }
+
+        .folder-name-display {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            max-width: 260px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .btn-connect {
+            background: rgba(0, 242, 254, 0.12);
+            color: var(--accent-cyan);
+            border: 1px solid rgba(0, 242, 254, 0.3);
+            padding: 0.4rem 0.9rem;
+            border-radius: 8px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            font-family: var(--font-mono);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .btn-connect:hover {
+            background: rgba(0, 242, 254, 0.22);
+            border-color: var(--accent-cyan);
+        }
+
+        /* Hero / Instructions Section */
+        .workspace-banner {
+            padding: 1.5rem 2rem 0.5rem;
+            max-width: 1350px;
+            margin: 0 auto;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+        }
+
+        .workspace-desc h1 {
+            font-size: 1.6rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }
+
+        .workspace-desc p {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .actions-tray {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .btn-action {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-family: var(--font-mono);
+            font-size: 0.82rem;
+            font-weight: 600;
+            padding: 0.6rem 1.15rem;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+        }
+
+        .btn-action.secondary {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-muted);
+            border: 1px solid var(--border-dim);
+        }
+
+        .btn-action.secondary:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+
+        .btn-action.primary {
+            background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
+            color: #050b14;
+            box-shadow: 0 4px 18px rgba(0, 242, 254, 0.35);
+        }
+
+        .btn-action.primary:hover {
+            filter: brightness(1.1);
+            box-shadow: 0 4px 25px rgba(0, 242, 254, 0.55);
+            transform: translateY(-1px);
+        }
+
+        .btn-action:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        main {
+            max-width: 1350px;
+            margin: 1rem auto 3rem;
+            padding: 0 2rem;
+            width: 100%;
+            flex: 1;
+        }
+
+        /* Beginner Guide Accordion / Panel */
+        .beginner-guide-card {
+            background: linear-gradient(180deg, rgba(20, 30, 48, 0.6) 0%, rgba(12, 17, 28, 0.8) 100%);
+            border: 1px solid rgba(0, 242, 254, 0.25);
+            border-radius: 14px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        .guide-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .guide-title {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #fff;
+        }
+
+        .guide-badge {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--accent-amber);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 6px;
+            font-weight: 600;
+        }
+
+        .guide-body {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+            gap: 1.25rem;
+            margin-top: 1.25rem;
+            padding-top: 1.25rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .step-box {
+            background: rgba(0, 0, 0, 0.35);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 1.1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.6rem;
+        }
+
+        .step-num {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            background: var(--accent-cyan);
+            color: #000;
+            border-radius: 50%;
+            font-weight: 800;
+            font-size: 0.75rem;
+            margin-right: 0.4rem;
+        }
+
+        .step-heading {
+            font-size: 0.92rem;
+            font-weight: 700;
+            color: #fff;
+            display: flex;
+            align-items: center;
+        }
+
+        .step-text {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+
+        .step-code {
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 0.45rem 0.65rem;
+            border-radius: 6px;
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--accent-cyan);
+            user-select: all;
+            word-break: break-all;
+            margin-top: 0.25rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .glass-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-dim);
+            border-radius: 14px;
+            backdrop-filter: blur(12px);
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.15rem;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .glass-card:hover {
+            border-color: rgba(255, 255, 255, 0.14);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border-dim);
+            padding-bottom: 0.85rem;
+        }
+
+        .card-title-group {
+            display: flex;
+            align-items: center;
+            gap: 0.65rem;
+        }
+
+        .card-icon {
+            color: var(--accent-cyan);
+            display: flex;
+        }
+
+        .card-title {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .card-link {
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            color: var(--accent-cyan);
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .card-link:hover {
+            text-decoration: underline;
+        }
+
+        .field-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+        }
+
+        .field-label {
+            font-family: var(--font-mono);
+            font-size: 0.76rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .field-label .subnote {
+            font-size: 0.7rem;
+            color: var(--text-faint);
+            font-weight: 400;
+        }
+
+        .input-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .text-input {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid var(--border-dim);
+            border-radius: 8px;
+            padding: 0.62rem 4.5rem 0.62rem 0.85rem;
+            font-family: var(--font-mono);
+            font-size: 0.82rem;
+            color: #fff;
+            transition: all 0.2s;
+        }
+
+        .text-input:focus {
+            outline: none;
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 12px rgba(0, 242, 254, 0.2);
+            background: rgba(0, 0, 0, 0.65);
+        }
+
+        .input-actions {
+            position: absolute;
+            right: 0.45rem;
+            display: flex;
+            align-items: center;
+            gap: 0.2rem;
+        }
+
+        .btn-icon {
+            background: transparent;
+            border: none;
+            color: var(--text-faint);
+            padding: 0.3rem;
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: color 0.15s, background-color 0.15s;
+        }
+
+        .btn-icon:hover {
+            color: var(--accent-cyan);
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .btn-verify {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-dim);
+            color: var(--text-muted);
+            padding: 0.3rem 0.6rem;
+            border-radius: 6px;
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+
+        .btn-verify:hover {
+            border-color: var(--accent-cyan);
+            color: var(--accent-cyan);
+            background: rgba(0, 242, 254, 0.08);
+        }
+
+        .verify-badge {
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 6px;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+        .verify-badge.ok {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-emerald);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+        .verify-badge.err {
+            background: rgba(244, 63, 94, 0.15);
+            color: var(--accent-rose);
+            border: 1px solid rgba(244, 63, 94, 0.3);
+        }
+        .verify-badge.testing {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--accent-amber);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+
+        .card-instructions {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 8px;
+            padding: 0.65rem 0.8rem;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            line-height: 1.45;
+        }
+
+        .card-instructions ol {
+            padding-left: 1.15rem;
+            margin-top: 0.3rem;
+        }
+
+        .card-instructions li {
+            margin-bottom: 0.15rem;
+        }
+
+        .terminal-panel {
+            margin-top: 1.5rem;
+            background: #05070a;
+            border: 1px solid var(--border-dim);
+            border-radius: 12px;
+            padding: 1rem 1.25rem;
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+        }
+
+        .terminal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: var(--text-faint);
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            margin-bottom: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .terminal-logs {
+            max-height: 120px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+        }
+
+        .log-entry {
+            line-height: 1.4;
+        }
+
+        .log-time {
+            color: var(--text-faint);
+            margin-right: 0.5rem;
+        }
+
+        .log-msg {
+            color: var(--text-muted);
+        }
+        .log-msg.highlight { color: var(--accent-cyan); }
+        .log-msg.success { color: var(--accent-emerald); }
+        .log-msg.warn { color: var(--accent-amber); }
+        .log-msg.error { color: var(--accent-rose); }
+
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            background: #111827;
+            border: 1px solid var(--border-glow);
+            padding: 0.85rem 1.25rem;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            z-index: 100;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        /* Mandatory Big Ass Overlay Modal */
+        .overlay-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(3, 5, 8, 0.94);
+            backdrop-filter: blur(14px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 999;
+            opacity: 1;
+            pointer-events: auto;
+            transition: opacity 0.3s ease;
+        }
+
+        .overlay-modal.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .modal-card {
+            background: linear-gradient(180deg, #101623 0%, #090d14 100%);
+            border: 2px solid var(--accent-cyan);
+            border-radius: 20px;
+            width: 90%;
+            max-width: 580px;
+            padding: 2.5rem 2rem;
+            box-shadow: 0 0 50px rgba(0, 242, 254, 0.25);
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            animation: popIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes popIn {
+            from { transform: scale(0.92); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+
+        .modal-icon {
+            width: 74px;
+            height: 74px;
+            border-radius: 50%;
+            background: rgba(0, 242, 254, 0.12);
+            color: var(--accent-cyan);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto;
+            border: 1px solid rgba(0, 242, 254, 0.4);
+        }
+
+        /* The Big Ass Button */
+        .big-ass-button {
+            background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
+            color: #030810;
+            font-size: 1.25rem;
+            font-weight: 800;
+            padding: 1.25rem 2rem;
+            border-radius: 12px;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 6px 30px rgba(0, 242, 254, 0.5);
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.85rem;
+            letter-spacing: -0.01em;
+        }
+
+        .big-ass-button:hover {
+            transform: scale(1.02) translateY(-2px);
+            box-shadow: 0 10px 40px rgba(0, 242, 254, 0.7);
+            filter: brightness(1.08);
+        }
+
+        .big-ass-button:active {
+            transform: scale(0.98);
         }
     </style>
 </head>
-<body class="min-h-screen pb-24">
+<body>
+
+    <!-- Always Present on Open: Big Ass Button Overlay -->
+    <div id="folder-modal" class="overlay-modal">
+        <div class="modal-card">
+            <div class="modal-icon">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                </svg>
+            </div>
+            <div>
+                <h2 style="font-size: 1.6rem; font-weight: 800; color: #fff; margin-bottom: 0.5rem;">STEP 1: SELECT YOUR LOGIC FOLDER</h2>
+                <p style="font-size: 0.95rem; color: var(--text-muted); line-height: 1.6;">
+                    To configure your settings, choose the exact folder that contains <code style="color:var(--accent-cyan); font-weight:700;">logic.py</code> (e.g. <code>D:\Ai\logic</code>).
+                </p>
+            </div>
+
+            <!-- The Big Ass Button -->
+            <button class="big-ass-button" onclick="requestFolderAccess()">
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                </svg>
+                CHOOSE LOGIC FOLDER NOW
+            </button>
+
+            <div style="font-size: 0.78rem; color: var(--text-faint); font-family: var(--font-mono);">
+                Grant local filesystem access to read and update harness configuration.
+            </div>
+        </div>
+    </div>
+
     <!-- Header -->
-    <header class="border-b border-gray-800 bg-gray-900/80 backdrop-blur-md sticky top-0 z-50">
-        <div class="max-w-7xl mx-auto px-8 py-5 flex items-center justify-between">
-            <div class="flex items-center space-x-4">
-                <div class="w-11 h-11 rounded-xl bg-indigo-600/25 border border-indigo-500/40 flex items-center justify-center text-indigo-400 font-mono font-bold text-xl shadow-lg shadow-indigo-600/20">
-                    L
-                </div>
-                <div>
-                    <h1 class="text-xl font-bold tracking-tight text-white flex items-center gap-3">
-                        LOGIC & VINCI <span class="text-xs px-2.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-semibold">Core v2.4</span>
-                    </h1>
-                    <p class="text-sm text-gray-400">Environment Verifier & Complete Deployment Guide</p>
-                </div>
+    <header>
+        <div class="brand-cluster">
+            <div class="brand-badge">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                    <polyline points="2 17 12 22 22 17"></polyline>
+                    <polyline points="2 12 12 17 22 12"></polyline>
+                </svg>
             </div>
-            <div class="flex items-center gap-4">
-                <button onclick="runAllChecks()" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-sm font-semibold text-white transition flex items-center gap-2 shadow-lg shadow-indigo-600/25">
-                    <i class="fa-solid fa-rotate text-sm"></i> Refresh All Checks
-                </button>
+            <div>
+                <div class="brand-title">LOGIC HARNESS SETUP</div>
+                <div class="brand-subtitle">System Harness &amp; Environment Provisioning</div>
             </div>
+        </div>
+
+        <div class="folder-status-bar">
+            <div id="folder-indicator" class="status-dot"></div>
+            <span id="folder-name-label" class="folder-name-display">No Directory Linked</span>
+            <button id="btn-browse" class="btn-connect" onclick="showFolderPickerModal()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                </svg>
+                Change Folder
+            </button>
         </div>
     </header>
 
-    <main class="max-w-7xl mx-auto px-8 pt-10 space-y-12">
+    <!-- Workspace Banner -->
+    <section class="workspace-banner">
+        <div class="workspace-desc">
+            <h1>Configuration &amp; Diagnostics</h1>
+            <p>Provision environment parameters, verify upstream credentials, and configure local service endpoints.</p>
+        </div>
+        <div class="actions-tray">
+            <button class="btn-action secondary" onclick="toggleAllKeys()">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+                Toggle Mask
+            </button>
+            <button class="btn-action secondary" onclick="reloadFromDisk()">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                </svg>
+                Reload Files
+            </button>
+            <button id="btn-save" class="btn-action primary" onclick="saveToDisk()" disabled>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                    <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                    <polyline points="7 3 7 8 15 8"></polyline>
+                </svg>
+                Update .env File
+            </button>
+        </div>
+    </section>
 
-        <!-- Environment & Core Keys Status -->
-        <section class="glass-card rounded-2xl p-7 border-indigo-500/30">
-            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-800 pb-5">
-                <div>
-                    <h2 class="text-xl font-bold text-white flex items-center gap-2.5">
-                        <i class="fa-solid fa-shield-halved text-indigo-400 text-lg"></i> Local Environment Configuration (<span class="mono text-indigo-300">./.env</span>)
-                    </h2>
-                    <p class="text-sm text-gray-300 mt-1" id="validatorSubtitle">
-                        Hardcoded to read from the repository root <code class="mono text-indigo-400 bg-gray-950 px-2 py-0.5 rounded">D:\\Ai\\logic\\.env</code>
-                    </p>
+    <main>
+
+        <!-- COMPLETE ZERO-TO-HERO BEGINNER INSTALLATION GUIDE -->
+        <section class="beginner-guide-card">
+            <div class="guide-header">
+                <div class="guide-title">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--accent-amber);">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="8" x2="12" y2="12"></line>
+                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                    </svg>
+                    <span>Complete Zero-Coding Setup Guide (Python, Node/NPM, OmniRoute, Everything)</span>
                 </div>
-                <div class="text-xs text-gray-400 mono bg-gray-950/80 px-3 py-1.5 rounded-lg border border-gray-800">
-                    Target: <span class="text-gray-200">./.env</span>
-                </div>
+                <span class="guide-badge">Read This If Starting Fresh</span>
             </div>
 
-            <!-- Parsed Keys Status Grid -->
-            <div id="keysGrid" class="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-                <!-- Groq -->
-                <div class="p-5 rounded-xl bg-gray-900/80 border border-gray-800 space-y-3">
-                    <div class="flex items-center justify-between">
-                        <span class="text-sm font-bold text-white mono">GROQ_API_KEY</span>
-                        <span id="badge-groq" class="text-xs mono px-2.5 py-1 rounded bg-gray-800 text-gray-400 font-semibold">Probing...</span>
+            <div class="guide-body">
+                <!-- Step 1: Python -->
+                <div class="step-box">
+                    <div class="step-heading">
+                        <span class="step-num">1</span>
+                        <span>Install Python (Required for Logic)</span>
                     </div>
-                    <div id="details-groq" class="text-xs text-gray-400 truncate">Checking .env file...</div>
+                    <div class="step-text">
+                        1. Go to <a href="https://www.python.org/downloads/" target="_blank" style="color:var(--accent-cyan); font-weight:600;">python.org/downloads</a> and download Python 3.11 or newer.<br>
+                        2. <strong>CRITICAL:</strong> When running the installer, check the box that says <strong>"Add python.exe to PATH"</strong> before clicking Install.
+                    </div>
+                    <div class="step-code">
+                        <span>python --version</span>
+                    </div>
+                    <div class="step-text" style="font-size:0.75rem;">Run this in Command Prompt to confirm it's working.</div>
                 </div>
 
-                <!-- Base URL / Gateway -->
-                <div class="p-5 rounded-xl bg-gray-900/80 border border-gray-800 space-y-3">
-                    <div class="flex items-center justify-between">
-                        <span class="text-sm font-bold text-white mono">BASE_URL</span>
-                        <span id="badge-baseurl" class="text-xs mono px-2.5 py-1 rounded bg-gray-800 text-gray-400 font-semibold">Probing...</span>
+                <!-- Step 2: Node.js & NPM -->
+                <div class="step-box">
+                    <div class="step-heading">
+                        <span class="step-num">2</span>
+                        <span>Install Node.js &amp; NPM</span>
                     </div>
-                    <div id="details-baseurl" class="text-xs text-gray-400 truncate">http://localhost:20128/v1</div>
+                    <div class="step-text">
+                        1. Go to <a href="https://nodejs.org/" target="_blank" style="color:var(--accent-cyan); font-weight:600;">nodejs.org</a> and download the <strong>LTS (Recommended)</strong> version.<br>
+                        2. Run the downloaded installer. Keep clicking "Next" and finish installation. NPM comes bundled automatically.
+                    </div>
+                    <div class="step-code">
+                        <span>node -v &amp;&amp; npm -v</span>
+                    </div>
+                    <div class="step-text" style="font-size:0.75rem;">Run this in Command Prompt to verify Node and NPM.</div>
                 </div>
 
-                <!-- You.com API -->
-                <div class="p-5 rounded-xl bg-gray-900/80 border border-gray-800 space-y-3">
-                    <div class="flex items-center justify-between">
-                        <span class="text-sm font-bold text-white mono">YOU_API_KEY</span>
-                        <span id="badge-you" class="text-xs mono px-2.5 py-1 rounded bg-gray-800 text-gray-400 font-semibold">Probing...</span>
+                <!-- Step 3: OmniRoute Gateway -->
+                <div class="step-box">
+                    <div class="step-heading">
+                        <span class="step-num">3</span>
+                        <span>Install &amp; Start OmniRoute</span>
                     </div>
-                    <div id="details-you" class="text-xs text-gray-400 truncate">Web search integration</div>
+                    <div class="step-text">
+                        Open Command Prompt (Press <code>Win + R</code>, type <code>cmd</code>, press Enter) and install OmniRoute globally via NPM:
+                    </div>
+                    <div class="step-code">
+                        <span>npm install -g omniroute</span>
+                    </div>
+                    <div class="step-text">Then launch it by typing:</div>
+                    <div class="step-code">
+                        <span>omniroute start</span>
+                    </div>
+                    <div class="step-text" style="font-size:0.75rem;">It will open at <code>http://localhost:20128</code>.</div>
                 </div>
 
-                <!-- TinyFish API -->
-                <div class="p-5 rounded-xl bg-gray-900/80 border border-gray-800 space-y-3">
-                    <div class="flex items-center justify-between">
-                        <span class="text-sm font-bold text-white mono">TINYFISH_API_KEY</span>
-                        <span id="badge-tinyfish" class="text-xs mono px-2.5 py-1 rounded bg-gray-800 text-gray-400 font-semibold">Probing...</span>
+                <!-- Step 4: Everything Search Engine -->
+                <div class="step-box">
+                    <div class="step-heading">
+                        <span class="step-num">4</span>
+                        <span>Install Everything Search (for find_file)</span>
                     </div>
-                    <div id="details-tinyfish" class="text-xs text-gray-400 truncate">Web automation API</div>
+                    <div class="step-text">
+                        1. Download Voidtools Everything from <a href="https://www.voidtools.com/" target="_blank" style="color:var(--accent-cyan); font-weight:600;">voidtools.com</a>.<br>
+                        2. Open Everything &rarr; Click <strong>Tools</strong> &rarr; <strong>Options</strong> &rarr; <strong>HTTP Server</strong>.<br>
+                        3. Check <strong>"Enable HTTP server"</strong> (Default port 80). Click Apply.
+                    </div>
                 </div>
             </div>
         </section>
 
-        <!-- Live Daemon Status -->
-        <section>
-            <h2 class="text-lg font-bold text-white mb-5 flex items-center gap-2.5">
-                <i class="fa-solid fa-server text-indigo-400"></i> Local Service Integrations & Ports
-            </h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <!-- OmniRoute -->
-                <div class="glass-card rounded-2xl p-6 flex items-center justify-between">
-                    <div class="flex items-center gap-4">
-                        <div class="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 text-xl">
-                            <i class="fa-solid fa-route"></i>
-                        </div>
-                        <div>
-                            <h3 class="font-bold text-white text-base">OmniRoute AI Gateway (:20128)</h3>
-                            <p class="text-sm text-gray-400 mono mt-0.5">http://127.0.0.1:20128/home</p>
-                        </div>
-                    </div>
-                    <span id="probe-omniroute" class="px-3 py-1 rounded-lg text-xs font-mono bg-gray-800 text-gray-400 font-semibold">Probing...</span>
-                </div>
+        <!-- DASHBOARD GRID -->
+        <div class="cards-grid">
 
-                <!-- Everything -->
-                <div class="glass-card rounded-2xl p-6 flex items-center justify-between">
-                    <div class="flex items-center gap-4">
-                        <div class="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400 text-xl">
-                            <i class="fa-solid fa-bolt"></i>
-                        </div>
-                        <div>
-                            <h3 class="font-bold text-white text-base">Everything HTTP Server (:80)</h3>
-                            <p class="text-sm text-gray-400 mono mt-0.5">http://127.0.0.1:80</p>
-                        </div>
-                    </div>
-                    <span id="probe-everything" class="px-3 py-1 rounded-lg text-xs font-mono bg-gray-800 text-gray-400 font-semibold">Probing...</span>
-                </div>
-            </div>
-        </section>
-
-        <!-- Chrome Automation Profile Setup -->
-        <section class="glass-card rounded-2xl p-7 border-cyan-500/30">
-            <div class="flex items-center justify-between border-b border-gray-800 pb-5 mb-5">
-                <div class="flex items-center gap-4">
-                    <div class="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 text-xl">
-                        <i class="fa-brands fa-chrome"></i>
-                    </div>
-                    <div>
-                        <h2 class="text-lg font-bold text-white">Dedicated Chrome Automation Profile Setup</h2>
-                        <p class="text-sm text-gray-400 mt-0.5">Required for Selenium, Playwright, Messenger tools, and automated web interactions.</p>
-                    </div>
-                </div>
-                <span class="text-xs mono px-3 py-1.5 rounded-lg bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-semibold">AutomationProfile</span>
-            </div>
-
-            <div class="space-y-5 text-sm text-gray-300">
-                <p>LOGIC operates with a dedicated persistent Chrome user profile located at:</p>
-                <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 mono text-cyan-300 text-sm flex items-center justify-between">
-                    <span>C:\Users\&lt;YOUR_USERNAME&gt;\AppData\Local\Google\Chrome\AutomationProfile</span>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-5 pt-2">
-                    <div class="p-5 rounded-xl bg-gray-900/70 border border-gray-800 space-y-2">
-                        <span class="font-bold text-white text-sm flex items-center gap-2">
-                            <span class="w-5 h-5 rounded-full bg-cyan-500/25 text-cyan-300 text-xs flex items-center justify-center font-mono">1</span>
-                            Launch Automation Profile
+            <!-- Card 1: OmniRoute Gateway -->
+            <div class="glass-card">
+                <div class="card-header">
+                    <div class="card-title-group">
+                        <span class="card-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 4.24 4.24"/><path d="m14.83 9.17 4.24-4.24"/><path d="m14.83 14.83 4.24 4.24"/><path d="m9.17 14.83-4.24 4.24"/></svg>
                         </span>
-                        <p class="text-gray-400 text-xs leading-relaxed">Run via CMD or Run dialog (Win+R):</p>
-                        <pre class="bg-gray-950 p-3 rounded-lg text-gray-300 mono text-xs overflow-x-auto">chrome.exe --user-data-dir="C:\Users\%USERNAME%\AppData\Local\Google\Chrome\AutomationProfile"</pre>
+                        <span class="card-title">OmniRoute Master Gateway</span>
                     </div>
+                    <a href="http://localhost:20128" target="_blank" class="card-link">Local Console &nearr;</a>
+                </div>
 
-                    <div class="p-5 rounded-xl bg-gray-900/70 border border-gray-800 space-y-2">
-                        <span class="font-bold text-white text-sm flex items-center gap-2">
-                            <span class="w-5 h-5 rounded-full bg-cyan-500/25 text-cyan-300 text-xs flex items-center justify-center font-mono">2</span>
-                            One-Time Account Logins
+                <div class="field-group">
+                    <label class="field-label">USER_NAME <span class="subnote">How LOGIC addresses you</span></label>
+                    <input type="text" id="USER_NAME" class="text-input" placeholder="e.g. Apurbo (your maker)">
+                </div>
+
+                <div class="field-group">
+                    <div class="field-label">
+                        <span>API_KEY <span class="subnote">Gateway Auth</span></span>
+                        <button class="btn-verify" onclick="verifyOmniRoute()">Check Key</button>
+                    </div>
+                    <div class="input-wrapper">
+                        <input type="password" id="API_KEY" class="text-input" placeholder="sk-...">
+                        <div class="input-actions">
+                            <button class="btn-icon" onclick="toggleField('API_KEY')">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            </button>
+                            <button class="btn-icon" onclick="copyField('API_KEY')">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="omniroute-verify-status"></div>
+                </div>
+
+                <div class="field-group">
+                    <label class="field-label">BASE_URL <span class="subnote">Gateway Endpoint</span></label>
+                    <input type="text" id="BASE_URL" class="text-input" placeholder="http://localhost:20128/v1">
+                </div>
+
+                <div class="field-group">
+                    <label class="field-label">MODEL <span class="subnote">Default System Model</span></label>
+                    <input type="text" id="MODEL" class="text-input" placeholder="logic">
+                </div>
+
+                <div class="card-instructions">
+                    <div style="font-weight: 700; color: var(--accent-cyan); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                        <span>⭐ RECOMMENDED QUICKSTART: Google AI Studio (Free, High Intelligence)</span>
+                    </div>
+                    <ol style="margin-bottom: 12px;">
+                        <li>Go to <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--accent-cyan); text-decoration: underline;">Google AI Studio</a> and create your free Gemini API key in 30 seconds.</li>
+                        <li>Open your OmniRoute console at <a href="http://localhost:20128" target="_blank" style="color:var(--accent-cyan); text-decoration: underline;">localhost:20128</a> &rarr; <strong>Providers</strong> &rarr; Add <strong>Google AI Studio</strong> and paste your API key.</li>
+                        <li>Go to <strong>Models</strong> in OmniRoute, locate or copy the Gemini model alias (e.g., <code>gemini-2.5-flash</code> or <code>gemini-2.5-flash-lite</code>), and paste it into the <strong>MODEL</strong> field above.</li>
+                        <li>Go to <strong>API Tokens</strong> in OmniRoute, create a token, and paste it into <strong>API_KEY</strong> above.</li>
+                    </ol>
+                    <div style="font-size: 0.8rem; color: #a1a1aa; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 8px;">
+                        <em>💡 Once LOGIC boots on your machine with Gemini Flash, you can speak directly to LOGIC to guide you through setting up advanced custom model combos, OpenRouter, or Anthropic.</em>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Card 2: Groq Cloud -->
+            <div class="glass-card">
+                <div class="card-header">
+                    <div class="card-title-group">
+                        <span class="card-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
                         </span>
-                        <p class="text-gray-400 text-xs leading-relaxed">In that opened Chrome window, log in to Facebook/Messenger, Torn, and any active sites you want LOGIC to automate.</p>
+                        <span class="card-title">Groq Cloud Engine</span>
                     </div>
+                    <a href="https://console.groq.com/keys" target="_blank" class="card-link">console.groq.com &nearr;</a>
+                </div>
 
-                    <div class="p-5 rounded-xl bg-gray-900/70 border border-gray-800 space-y-2">
-                        <span class="font-bold text-white text-sm flex items-center gap-2">
-                            <span class="w-5 h-5 rounded-full bg-cyan-500/25 text-cyan-300 text-xs flex items-center justify-center font-mono">3</span>
-                            Automated Reconnection
+                <div class="field-group">
+                    <div class="field-label">
+                        <span>GROQ_API_KEY <span class="subnote">gsk_...</span></span>
+                        <button class="btn-verify" onclick="verifyGroq()">Check Key</button>
+                    </div>
+                    <div class="input-wrapper">
+                        <input type="password" id="GROQ_API_KEY" class="text-input" placeholder="gsk_...">
+                        <div class="input-actions">
+                            <button class="btn-icon" onclick="toggleField('GROQ_API_KEY')">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            </button>
+                            <button class="btn-icon" onclick="copyField('GROQ_API_KEY')">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="groq-verify-status"></div>
+                </div>
+
+                <div class="field-group">
+                    <label class="field-label">MODEL_NAME_GROQ <span class="subnote">Inference Engine</span></label>
+                    <input type="text" id="MODEL_NAME_GROQ" class="text-input" placeholder="openai/gpt-oss-120b">
+                </div>
+
+                <div class="card-instructions">
+                    <strong>How to get Groq Key:</strong>
+                    <ol>
+                        <li>Visit <a href="https://console.groq.com/keys" target="_blank" style="color:var(--accent-cyan);">console.groq.com/keys</a> and log in.</li>
+                        <li>Click <strong>Create API Key</strong>.</li>
+                        <li>Copy the generated <code>gsk_...</code> string and paste it above.</li>
+                    </ol>
+                </div>
+            </div>
+
+            <!-- Card 3: TinyFish Agent -->
+            <div class="glass-card">
+                <div class="card-header">
+                    <div class="card-title-group">
+                        <span class="card-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                         </span>
-                        <p class="text-gray-400 text-xs leading-relaxed">LOGIC's Playwright and Selenium drivers will automatically mount this profile with saved sessions and zero CAPTCHAs.</p>
+                        <span class="card-title">TinyFish Search Agent</span>
+                    </div>
+                    <a href="https://tinyfish.ai" target="_blank" class="card-link">tinyfish.ai &nearr;</a>
+                </div>
+
+                <div class="field-group">
+                    <div class="field-label">
+                        <span>TINYFISH_API_KEY <span class="subnote">Search API</span></span>
+                        <button class="btn-verify" onclick="verifyTinyfish()">Check Key</button>
+                    </div>
+                    <div class="input-wrapper">
+                        <input type="password" id="TINYFISH_API_KEY" class="text-input" placeholder="sk-tinyfish-...">
+                        <div class="input-actions">
+                            <button class="btn-icon" onclick="toggleField('TINYFISH_API_KEY')">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            </button>
+                            <button class="btn-icon" onclick="copyField('TINYFISH_API_KEY')">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="tinyfish-verify-status"></div>
+                </div>
+
+                <div class="card-instructions">
+                    <strong>How to get TinyFish Key:</strong>
+                    <ol>
+                        <li>Navigate to <a href="https://tinyfish.ai" target="_blank" style="color:var(--accent-cyan);">tinyfish.ai</a>.</li>
+                        <li>Log into your developer account dashboard.</li>
+                        <li>Generate your Agent API key and paste it here.</li>
+                    </ol>
+                </div>
+            </div>
+
+            <!-- Card 4: You.com API -->
+            <div class="glass-card">
+                <div class="card-header">
+                    <div class="card-title-group">
+                        <span class="card-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+                        </span>
+                        <span class="card-title">You.com Web Intelligence</span>
+                    </div>
+                    <a href="https://api.you.com" target="_blank" class="card-link">api.you.com &nearr;</a>
+                </div>
+
+                <div class="field-group">
+                    <div class="field-label">
+                        <span>YOU_API_KEY <span class="subnote">ydc-sk-...</span></span>
+                        <button class="btn-verify" onclick="verifyYou()">Check Key</button>
+                    </div>
+                    <div class="input-wrapper">
+                        <input type="password" id="YOU_API_KEY" class="text-input" placeholder="ydc-sk-...">
+                        <div class="input-actions">
+                            <button class="btn-icon" onclick="toggleField('YOU_API_KEY')">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            </button>
+                            <button class="btn-icon" onclick="copyField('YOU_API_KEY')">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="you-verify-status"></div>
+                </div>
+
+                <div class="card-instructions">
+                    <strong>How to get You.com Key:</strong>
+                    <ol>
+                        <li>Sign up at <a href="https://api.you.com" target="_blank" style="color:var(--accent-cyan);">api.you.com</a>.</li>
+                        <li>Access your developer settings &amp; create a new Search API token.</li>
+                        <li>Copy the <code>ydc-sk-...</code> key and paste it above.</li>
+                    </ol>
+                </div>
+            </div>
+
+            <!-- Card 5: Services & Port Health Check -->
+            <div class="glass-card">
+                <div class="card-header">
+                    <div class="card-title-group">
+                        <span class="card-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+                        </span>
+                        <span class="card-title">Services &amp; Port Status</span>
+                    </div>
+                    <button class="btn-verify" onclick="checkAllPorts()">Ping All</button>
+                </div>
+
+                <!-- Everything Service -->
+                <div class="field-group">
+                    <div class="field-label">
+                        <span>Everything HTTP Service (Port <span id="lbl-everything-port">80</span>)</span>
+                        <span id="badge-port-everything" class="verify-badge">Untested</span>
+                    </div>
+                    <div style="font-size:0.75rem; color:var(--text-faint);">
+                        Underlying index service used by <code>find_file.py</code> for instant drive search.
+                    </div>
+                </div>
+
+                <!-- OmniRoute Gateway Service -->
+                <div class="field-group" style="margin-top:0.5rem;">
+                    <div class="field-label">
+                        <span>OmniRoute Gateway (Port 20128)</span>
+                        <span id="badge-port-omniroute" class="verify-badge">Untested</span>
+                    </div>
+                    <div style="font-size:0.75rem; color:var(--text-faint);">
+                        Local multi-provider LLM gateway endpoint at <code>http://localhost:20128</code>.
                     </div>
                 </div>
             </div>
-        </section>
 
-        <!-- Credentials & OAuth Directory Setup -->
-        <section class="glass-card rounded-2xl p-7">
-            <div class="border-b border-gray-800 pb-5 mb-5">
-                <h2 class="text-lg font-bold text-white flex items-center gap-2.5">
-                    <i class="fa-solid fa-key text-amber-400"></i> OAuth & Credential Token Files
-                </h2>
-                <p class="text-sm text-gray-400 mt-1">All personal tokens must be stored in <code class="text-amber-400 font-mono bg-gray-950 px-2 py-0.5 rounded">logic_tools/oauth_token_files/</code></p>
+            <!-- Card 6: Find_File Tool Port Configuration -->
+            <div class="glass-card">
+                <div class="card-header">
+                    <div class="card-title-group">
+                        <span class="card-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                        </span>
+                        <span class="card-title">find_file.py Tool Port</span>
+                    </div>
+                    <button class="btn-action primary" style="padding:0.4rem 0.8rem; font-size:0.75rem;" onclick="saveFindFilePort()">Apply Port</button>
+                </div>
+
+                <div class="field-group">
+                    <label class="field-label">Everything Search Port <span class="subnote">Default is 80</span></label>
+                    <div class="input-wrapper">
+                        <input type="number" id="find_file_port" class="text-input" value="80" placeholder="80">
+                    </div>
+                    <div style="font-size:0.75rem; color:var(--text-faint); margin-top:0.25rem;">
+                        Directly modifies the target port inside <code>logic_tools/find_file.py</code> without manually touching python code.
+                    </div>
+                </div>
+
+                <div class="card-instructions">
+                    <strong>Port Configuration Note:</strong>
+                    If Everything HTTP Server runs on another port (e.g. <code>8080</code> or <code>8000</code>), update the number here and click <strong>Apply Port</strong>.
+                </div>
             </div>
 
-            <div class="overflow-x-auto">
-                <table class="w-full text-left text-sm">
-                    <thead>
-                        <tr class="border-b border-gray-800 text-gray-400 mono font-semibold">
-                            <th class="pb-3.5 pr-6">Target File</th>
-                            <th class="pb-3.5 pr-6">Purpose / Consuming Tools</th>
-                            <th class="pb-3.5 pr-6">Setup Method</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-800/70 text-gray-300">
-                        <tr>
-                            <td class="py-4 font-mono text-indigo-300 font-semibold">google_oauth.json</td>
-                            <td class="py-4">Google Calendar & Gmail access (<code class="text-gray-400">get_schedule.py</code>, <code class="text-gray-400">calendar_add_multiple_events.py</code>)</td>
-                            <td class="py-4 text-gray-400">Download from Google Cloud Console &rarr; OAuth 2.0 Client IDs (Desktop App)</td>
-                        </tr>
-                        <tr>
-                            <td class="py-4 font-mono text-indigo-300 font-semibold">token.json</td>
-                            <td class="py-4">Generated Google user refresh token</td>
-                            <td class="py-4 text-gray-400">Auto-generated on first calendar script authorization run</td>
-                        </tr>
-                        <tr>
-                            <td class="py-4 font-mono text-indigo-300 font-semibold">github_access.json</td>
-                            <td class="py-4">GitHub Gist / Repo management via <code class="text-gray-400">read_credential</code></td>
-                            <td class="py-4 text-gray-400">Create GitHub Personal Access Token (Classic) with <code class="text-gray-400">gist</code> / <code class="text-gray-400">repo</code> scope</td>
-                        </tr>
-                        <tr>
-                            <td class="py-4 font-mono text-indigo-300 font-semibold">torn_api.json</td>
-                            <td class="py-4">Torn City API skill integration</td>
-                            <td class="py-4 text-gray-400">JSON object: <code class="text-gray-400 font-mono">{"api_key": "YOUR_KEY"}</code></td>
-                        </tr>
-                    </tbody>
-                </table>
+        </div>
+
+        <!-- Real-Time Activity Log -->
+        <div class="terminal-panel">
+            <div class="terminal-header">
+                <span>Operation Stream</span>
+                <span>Direct Disk Link</span>
             </div>
-        </section>
-
-        <!-- Detailed Key Acquisition Guides -->
-        <section class="space-y-6">
-            <div>
-                <h2 class="text-xl font-bold text-white flex items-center gap-2.5">
-                    <i class="fa-solid fa-book-bookmark text-indigo-400"></i> Step-by-Step Acquisition Guides
-                </h2>
-                <p class="text-sm text-gray-400 mt-1">Exact instructions to obtain all keys and configure local daemons.</p>
+            <div id="terminal-logs" class="terminal-logs">
+                <div class="log-entry"><span class="log-time">[BOOT]</span><span class="log-msg highlight">Awaiting user folder selection.</span></div>
             </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-                <!-- 1. Groq Cloud API -->
-                <div class="glass-card rounded-2xl p-7 space-y-4">
-                    <div class="flex items-center justify-between border-b border-gray-800 pb-4">
-                        <div class="flex items-center gap-3">
-                            <i class="fa-solid fa-microchip text-orange-400 text-xl"></i>
-                            <h3 class="font-bold text-white text-base">1. Groq Cloud API Key</h3>
-                        </div>
-                        <a href="https://console.groq.com/keys" target="_blank" class="text-xs text-indigo-400 hover:text-indigo-300 mono flex items-center gap-1 font-semibold">
-                            console.groq.com <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
-                        </a>
-                    </div>
-                    <ol class="space-y-3 text-sm text-gray-300 relative pl-4 leading-relaxed">
-                        <li class="guide-step relative pl-4">Sign in to <strong>console.groq.com</strong>.</li>
-                        <li class="guide-step relative pl-4">Navigate to <strong>API Keys</strong> in the left sidebar.</li>
-                        <li class="guide-step relative pl-4">Click <strong>Create API Key</strong>, name it <code>logic-groq</code>, and copy the key (<code>gsk_...</code>).</li>
-                        <li class="guide-step relative pl-4">Paste into your <code class="mono text-indigo-400">.env</code> under <code class="mono text-indigo-300">GROQ_API_KEY</code>.</li>
-                    </ol>
-                </div>
-
-                <!-- 2. OmniRoute AI Gateway -->
-                <div class="glass-card rounded-2xl p-7 space-y-4">
-                    <div class="flex items-center justify-between border-b border-gray-800 pb-4">
-                        <div class="flex items-center gap-3">
-                            <i class="fa-solid fa-route text-indigo-400 text-xl"></i>
-                            <h3 class="font-bold text-white text-base">2. OmniRoute AI Gateway</h3>
-                        </div>
-                        <a href="https://github.com/dnhkng/OmniRoute" target="_blank" class="text-xs text-indigo-400 hover:text-indigo-300 mono flex items-center gap-1 font-semibold">
-                            GitHub Repo <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
-                        </a>
-                    </div>
-                    <ol class="space-y-3 text-sm text-gray-300 relative pl-4 leading-relaxed">
-                        <li class="guide-step relative pl-4">Clone or install OmniRoute locally (or run <code class="mono text-indigo-400">open_omniroute.py</code>).</li>
-                        <li class="guide-step relative pl-4">Ensure OmniRoute runs on port <strong>20128</strong> (<code class="mono text-indigo-300">http://127.0.0.1:20128</code>).</li>
-                        <li class="guide-step relative pl-4">Configure your target providers at <code class="mono">localhost:20128/home</code>.</li>
-                        <li class="guide-step relative pl-4">Set <code class="mono text-indigo-300">BASE_URL=http://localhost:20128/v1</code> in <code class="mono text-indigo-400">.env</code>.</li>
-                    </ol>
-                </div>
-
-                <!-- 3. Google Calendar & Gmail OAuth -->
-                <div class="glass-card rounded-2xl p-7 space-y-4">
-                    <div class="flex items-center justify-between border-b border-gray-800 pb-4">
-                        <div class="flex items-center gap-3">
-                            <i class="fa-brands fa-google text-red-400 text-xl"></i>
-                            <h3 class="font-bold text-white text-base">3. Google OAuth (<code class="mono font-normal text-xs">google_oauth.json</code>)</h3>
-                        </div>
-                        <a href="https://console.cloud.google.com/apis/credentials" target="_blank" class="text-xs text-indigo-400 hover:text-indigo-300 mono flex items-center gap-1 font-semibold">
-                            Cloud Console <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
-                        </a>
-                    </div>
-                    <ol class="space-y-3 text-sm text-gray-300 relative pl-4 leading-relaxed">
-                        <li class="guide-step relative pl-4">Go to <strong>Google Cloud Console &rarr; APIs & Services &rarr; Credentials</strong>.</li>
-                        <li class="guide-step relative pl-4">Enable <strong>Google Calendar API</strong> and <strong>Gmail API</strong>.</li>
-                        <li class="guide-step relative pl-4">Click <strong>Create Credentials &rarr; OAuth client ID &rarr; Application type: Desktop App</strong>.</li>
-                        <li class="guide-step relative pl-4">Download JSON and save as: <code class="mono text-indigo-300 block mt-1.5 bg-gray-950 p-2 rounded">logic_tools/oauth_token_files/google_oauth.json</code></li>
-                        <li class="guide-step relative pl-4">Run <code class="mono text-indigo-400">get_schedule.py</code> to complete the one-time browser login and create <code class="mono">token.json</code>.</li>
-                    </ol>
-                </div>
-
-                <!-- 4. GitHub Classic PAT -->
-                <div class="glass-card rounded-2xl p-7 space-y-4">
-                    <div class="flex items-center justify-between border-b border-gray-800 pb-4">
-                        <div class="flex items-center gap-3">
-                            <i class="fa-brands fa-github text-white text-xl"></i>
-                            <h3 class="font-bold text-white text-base">4. GitHub PAT (<code class="mono font-normal text-xs">github_access.json</code>)</h3>
-                        </div>
-                        <a href="https://github.com/settings/tokens" target="_blank" class="text-xs text-indigo-400 hover:text-indigo-300 mono flex items-center gap-1 font-semibold">
-                            GitHub Settings <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
-                        </a>
-                    </div>
-                    <ol class="space-y-3 text-sm text-gray-300 relative pl-4 leading-relaxed">
-                        <li class="guide-step relative pl-4">Navigate to <strong>github.com/settings/tokens &rarr; Generate new token (classic)</strong>.</li>
-                        <li class="guide-step relative pl-4">Select scopes: <code class="mono">repo</code> (Full repository control) and <code class="mono">gist</code>.</li>
-                        <li class="guide-step relative pl-4">Create file <code class="mono text-indigo-300">logic_tools/oauth_token_files/github_access.json</code> containing:
-                            <pre class="bg-gray-950 p-2.5 rounded text-gray-400 font-mono mt-1 text-xs">{"token": "ghp_your_personal_access_token_here"}</pre>
-                        </li>
-                    </ol>
-                </div>
-
-                <!-- 5. Voidtools Everything HTTP Server -->
-                <div class="glass-card rounded-2xl p-7 space-y-4">
-                    <div class="flex items-center justify-between border-b border-gray-800 pb-4">
-                        <div class="flex items-center gap-3">
-                            <i class="fa-solid fa-magnifying-glass text-blue-400 text-xl"></i>
-                            <h3 class="font-bold text-white text-base">5. Voidtools Everything HTTP Server</h3>
-                        </div>
-                        <a href="https://www.voidtools.com" target="_blank" class="text-xs text-indigo-400 hover:text-indigo-300 mono flex items-center gap-1 font-semibold">
-                            voidtools.com <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
-                        </a>
-                    </div>
-                    <ol class="space-y-3 text-sm text-gray-300 relative pl-4 leading-relaxed">
-                        <li class="guide-step relative pl-4">Install <strong>Everything</strong> on Windows.</li>
-                        <li class="guide-step relative pl-4">Open Everything &rarr; <strong>Tools &rarr; Options &rarr; HTTP Server</strong>.</li>
-                        <li class="guide-step relative pl-4">Check <strong>"Enable HTTP server"</strong> and set <strong>Port: 80</strong> (leave Username/Password empty).</li>
-                        <li class="guide-step relative pl-4">Click Apply. <code class="mono text-blue-400">find_file.py</code> queries <code class="mono">http://127.0.0.1:80/?search=...</code> for sub-millisecond local file searches.</li>
-                    </ol>
-                </div>
-
-                <!-- 6. DeepWrap Vision Setup -->
-                <div class="glass-card rounded-2xl p-7 space-y-4">
-                    <div class="flex items-center justify-between border-b border-gray-800 pb-4">
-                        <div class="flex items-center gap-3">
-                            <i class="fa-solid fa-eye text-purple-400 text-xl"></i>
-                            <h3 class="font-bold text-white text-base">6. DeepWrap Vision Analyzer</h3>
-                        </div>
-                        <a href="https://github.com/Kuduxaaa/deepwrap" target="_blank" class="text-xs text-purple-400 hover:text-purple-300 mono flex items-center gap-1 font-semibold">
-                            Kuduxaaa/deepwrap <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
-                        </a>
-                    </div>
-                    <ol class="space-y-3 text-sm text-gray-300 relative pl-4 leading-relaxed">
-                        <li class="guide-step relative pl-4">Install the DeepWrap package from GitHub:
-                            <pre class="bg-gray-950 p-2.5 rounded text-purple-300 font-mono mt-1 text-xs">pip install git+https://github.com/Kuduxaaa/deepwrap.git</pre>
-                        </li>
-                        <li class="guide-step relative pl-4">Run the one-time interactive browser login in your terminal:
-                            <pre class="bg-gray-950 p-2.5 rounded text-purple-300 font-mono mt-1 text-xs">deepwrap auth</pre>
-                        </li>
-                        <li class="guide-step relative pl-4">Session credentials will be saved in <code class="mono text-gray-300">~/.deepwrap/</code> for automated visual processing with <code class="mono">image_analyzer.py</code>.</li>
-                    </ol>
-                </div>
-
-            </div>
-        </section>
-
+        </div>
     </main>
 
+    <!-- Notification Toast -->
+    <div id="toast" class="toast">
+        <svg id="toast-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+        <span id="toast-text">Configuration updated.</span>
+    </div>
+
     <script>
-        async function loadHardcodedEnv() {
+        const DEFAULT_ENV = {
+            USER_NAME: '"Apurbo (your maker)"',
+            API_KEY: '',
+            BASE_URL: 'http://localhost:20128/v1',
+            GROQ_API_KEY: '',
+            TINYFISH_API_KEY: '',
+            YOU_API_KEY: '',
+            MODEL: 'logic',
+            MODEL_NAME_GROQ: 'openai/gpt-oss-120b'
+        };
+
+        const FIELD_KEYS = ['USER_NAME', 'API_KEY', 'BASE_URL', 'GROQ_API_KEY', 'TINYFISH_API_KEY', 'YOU_API_KEY', 'MODEL', 'MODEL_NAME_GROQ'];
+        let directoryHandle = null;
+
+        function showFolderPickerModal() {
+            document.getElementById('folder-modal').classList.remove('hidden');
+        }
+
+        function addLog(msg, type = '') {
+            const container = document.getElementById('terminal-logs');
+            const now = new Date();
+            const timeStr = now.toTimeString().split(' ')[0];
+            const div = document.createElement('div');
+            div.className = 'log-entry';
+            div.innerHTML = `<span class="log-time">[${timeStr}]</span><span class="log-msg ${type}">${msg}</span>`;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function triggerToast(text, isError = false) {
+            const toast = document.getElementById('toast');
+            const toastText = document.getElementById('toast-text');
+            const toastIcon = document.getElementById('toast-icon');
+            toastText.innerText = text;
+            toast.style.borderColor = isError ? 'var(--accent-rose)' : 'var(--border-glow)';
+            toastIcon.setAttribute('stroke', isError ? '#f43f5e' : '#00f2fe');
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3500);
+        }
+
+        // Folder access flow
+        async function requestFolderAccess() {
             try {
-                const response = await fetch('./.env?t=' + Date.now());
-                if (response.ok) {
-                    const text = await response.text();
-                    parseEnvText(text);
-                } else {
-                    document.getElementById('validatorSubtitle').innerHTML = `<span class="text-emerald-400 font-bold"><i class="fa-solid fa-check"></i> Connected to repository root.</span> Ensure <code class="mono text-indigo-400">.env</code> is populated.`;
+                if (!window.showDirectoryPicker) {
+                    alert('Please open this page in Google Chrome or Microsoft Edge for local filesystem access.');
+                    return;
                 }
+                const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+                directoryHandle = handle;
+                document.getElementById('folder-modal').classList.add('hidden');
+                await syncFolder();
             } catch (err) {
-                // If direct local file protocol restricts fetch
-                document.getElementById('validatorSubtitle').innerHTML = `<span class="text-emerald-400 font-bold"><i class="fa-solid fa-circle-check"></i> Configured for local root:</span> <code class="mono text-indigo-300">D:\\Ai\\logic\\.env</code>`;
-                validateFallback();
+                if (err.name !== 'AbortError') {
+                    addLog(`Access request failed: ${err.message}`, 'warn');
+                }
             }
         }
 
-        function parseEnvText(text) {
-            const lines = text.split(/\r?\n/);
-            const env = {};
+        async function syncFolder() {
+            if (!directoryHandle) return;
 
+            document.getElementById('folder-indicator').classList.add('active');
+            document.getElementById('folder-name-label').innerText = directoryHandle.name;
+            document.getElementById('btn-save').disabled = false;
+            addLog(`Workspace linked: ${directoryHandle.name}`, 'highlight');
+
+            // 1. Sync .env
+            try {
+                const envHandle = await directoryHandle.getFileHandle('.env', { create: false });
+                addLog('Found .env. Reading configuration values...', 'highlight');
+                const file = await envHandle.getFile();
+                const content = await file.text();
+                parseAndPopulate(content);
+                addLog('Successfully loaded .env values into dashboard.', 'success');
+                triggerToast('Loaded .env successfully');
+            } catch (err) {
+                if (err.name === 'NotFoundError') {
+                    addLog('.env missing. Initializing template with defaults...', 'warn');
+                    await createDefaultEnvFile();
+                } else {
+                    addLog(`Error reading .env: ${err.message}`, 'error');
+                }
+            }
+
+            // 2. Read find_file.py current port
+            await readFindFilePort();
+        }
+
+        async function createDefaultEnvFile() {
+            try {
+                const envHandle = await directoryHandle.getFileHandle('.env', { create: true });
+                const writable = await envHandle.createWritable();
+                const defaultContent = generateEnvString(DEFAULT_ENV);
+                await writable.write(defaultContent);
+                await writable.close();
+                populateForm(DEFAULT_ENV);
+                addLog('Default .env generated and saved on disk.', 'success');
+                triggerToast('Created .env with default values');
+            } catch (e) {
+                addLog(`Failed to create default .env: ${e.message}`, 'error');
+            }
+        }
+
+        function parseAndPopulate(rawText) {
+            const data = { ...DEFAULT_ENV };
+            const lines = rawText.split(/\r?\n/);
             for (let line of lines) {
                 line = line.trim();
                 if (!line || line.startsWith('#')) continue;
                 const eqIdx = line.indexOf('=');
-                if (eqIdx !== -1) {
-                    const key = line.slice(0, eqIdx).trim();
-                    let val = line.slice(eqIdx + 1).trim();
-                    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-                        val = val.slice(1, -1);
-                    }
-                    env[key] = val;
+                if (eqIdx === -1) continue;
+                const k = line.slice(0, eqIdx).trim();
+                let v = line.slice(eqIdx + 1).trim();
+                if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+                    v = v.slice(1, -1);
                 }
+                data[k] = v;
             }
-
-            document.getElementById('validatorSubtitle').innerHTML = `<span class="text-emerald-400 font-bold"><i class="fa-solid fa-circle-check"></i> Root .env active:</span> (${Object.keys(env).length} variables configured).`;
-
-            validateKeys(env);
+            populateForm(data);
         }
 
-        function validateFallback() {
-            document.getElementById('badge-baseurl').className = "text-xs mono px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
-            document.getElementById('badge-baseurl').innerText = "Active";
-            document.getElementById('details-baseurl').innerText = "http://localhost:20128/v1";
-
-            document.getElementById('badge-groq').className = "text-xs mono px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
-            document.getElementById('badge-groq').innerText = "Active (.env)";
-            document.getElementById('details-groq').innerText = "Read from local .env";
-
-            document.getElementById('badge-you').className = "text-xs mono px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
-            document.getElementById('badge-you').innerText = "Active (.env)";
-            document.getElementById('details-you').innerText = "Search backend ready";
-
-            document.getElementById('badge-tinyfish').className = "text-xs mono px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
-            document.getElementById('badge-tinyfish').innerText = "Active (.env)";
-            document.getElementById('details-tinyfish').innerText = "Web automation ready";
+        function populateForm(data) {
+            FIELD_KEYS.forEach(key => {
+                const el = document.getElementById(key);
+                if (el) el.value = data[key] ?? '';
+            });
         }
 
-        async function validateKeys(env) {
-            // Groq Check
-            const groqBadge = document.getElementById('badge-groq');
-            const groqDetails = document.getElementById('details-groq');
-            const groqKey = env['GROQ_API_KEY'];
-
-            if (!groqKey || groqKey.includes('your_groq') || groqKey.length < 10) {
-                groqBadge.className = "text-xs mono px-2.5 py-1 rounded bg-red-500/20 text-red-300 border border-red-500/30 font-semibold";
-                groqBadge.innerText = "Missing";
-                groqDetails.innerText = "Add to .env";
-            } else {
-                groqBadge.className = "text-xs mono px-2.5 py-1 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-semibold";
-                groqBadge.innerText = "Validating...";
-                try {
-                    const res = await fetch("https://api.groq.com/openai/v1/models", {
-                        headers: { "Authorization": `Bearer ${groqKey}` }
-                    });
-                    if (res.ok) {
-                        groqBadge.className = "text-xs mono px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
-                        groqBadge.innerText = "Verified Active";
-                        groqDetails.innerText = "Groq Cloud auth valid";
-                    } else {
-                        groqBadge.className = "text-xs mono px-2.5 py-1 rounded bg-red-500/20 text-red-300 border border-red-500/30 font-semibold";
-                        groqBadge.innerText = `Invalid (${res.status})`;
-                        groqDetails.innerText = "Key rejected by Groq";
-                    }
-                } catch (e) {
-                    groqBadge.className = "text-xs mono px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
-                    groqBadge.innerText = "Key Formatted";
-                    groqDetails.innerText = groqKey.slice(0, 8) + "..." + groqKey.slice(-4);
-                }
-            }
-
-            // Base URL Check
-            const baseBadge = document.getElementById('badge-baseurl');
-            const baseDetails = document.getElementById('details-baseurl');
-            const baseUrl = env['BASE_URL'] || 'http://localhost:20128/v1';
-            baseDetails.innerText = baseUrl;
-            baseBadge.className = "text-xs mono px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
-            baseBadge.innerText = "Configured";
-
-            // You.com Check
-            const youBadge = document.getElementById('badge-you');
-            const youDetails = document.getElementById('details-you');
-            const youKey = env['YOU_API_KEY'];
-            if (youKey && !youKey.includes('your_') && !youKey.includes('YOUR_') && youKey.trim() !== '') {
-                youBadge.className = "text-xs mono px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
-                youBadge.innerText = "Active";
-                youDetails.innerText = youKey.slice(0, 6) + "..." + youKey.slice(-4);
-            } else {
-                youBadge.className = "text-xs mono px-2.5 py-1 rounded bg-red-500/20 text-red-300 border border-red-500/30 font-semibold";
-                youBadge.innerText = "Missing";
-                youDetails.innerText = "Required in .env for search_net";
-            }
-
-            // TinyFish Check
-            const tinyBadge = document.getElementById('badge-tinyfish');
-            const tinyDetails = document.getElementById('details-tinyfish');
-            const tinyKey = env['TINYFISH_API_KEY'];
-            if (tinyKey && !tinyKey.includes('your_') && !tinyKey.includes('YOUR_') && tinyKey.trim() !== '') {
-                tinyBadge.className = "text-xs mono px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
-                tinyBadge.innerText = "Active";
-                tinyDetails.innerText = tinyKey.slice(0, 6) + "..." + tinyKey.slice(-4);
-            } else {
-                tinyBadge.className = "text-xs mono px-2.5 py-1 rounded bg-red-500/20 text-red-300 border border-red-500/30 font-semibold";
-                tinyBadge.innerText = "Missing";
-                tinyDetails.innerText = "Required in .env for web actions";
-            }
+        function collectFormData() {
+            const out = {};
+            FIELD_KEYS.forEach(key => {
+                const el = document.getElementById(key);
+                out[key] = el ? el.value.trim() : (DEFAULT_ENV[key] || '');
+            });
+            return out;
         }
 
-        async function checkOmniroute() {
-            const badge = document.getElementById('probe-omniroute');
-            badge.className = "px-3 py-1 rounded-lg text-xs font-mono bg-gray-800 text-gray-400 font-semibold";
-            badge.innerText = "Probing...";
+        function generateEnvString(vals) {
+            return `USER_NAME=${vals.USER_NAME || '"Apurbo (your maker)"'}
+API_KEY=${vals.API_KEY || ''}
+BASE_URL=${vals.BASE_URL || 'http://localhost:20128/v1'}
+GROQ_API_KEY=${vals.GROQ_API_KEY || ''}
+TINYFISH_API_KEY=${vals.TINYFISH_API_KEY || ''}
+YOU_API_KEY=${vals.YOU_API_KEY || ''}
+MODEL=${vals.MODEL || 'logic'}
+MODEL_NAME_GROQ=${vals.MODEL_NAME_GROQ || 'openai/gpt-oss-120b'}
+`;
+        }
+
+        async function saveToDisk() {
+            if (!directoryHandle) {
+                showFolderPickerModal();
+                return;
+            }
 
             try {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 2000);
-                await fetch("http://127.0.0.1:20128/home", { mode: 'no-cors', signal: controller.signal });
-                clearTimeout(timeoutId);
-                badge.className = "px-3 py-1 rounded-lg text-xs font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
-                badge.innerText = "Online (:20128)";
+                addLog('Writing updates directly to .env...', 'highlight');
+                const fileHandle = await directoryHandle.getFileHandle('.env', { create: true });
+                const writable = await fileHandle.createWritable();
+                const content = generateEnvString(collectFormData());
+                await writable.write(content);
+                await writable.close();
+                addLog('.env file updated on disk.', 'success');
+                triggerToast('.env saved directly!');
             } catch (err) {
-                badge.className = "px-3 py-1 rounded-lg text-xs font-mono bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold";
-                badge.innerText = "Offline / Idle";
+                addLog(`Save failed: ${err.message}`, 'error');
+                triggerToast(`Error: ${err.message}`, true);
             }
         }
 
-        function checkEverything() {
-            const badge = document.getElementById('probe-everything');
-            badge.className = "px-3 py-1 rounded-lg text-xs font-mono bg-gray-800 text-gray-400 font-semibold";
-            badge.innerText = "Probing...";
-
-            const img = new Image();
-            let resolved = false;
-
-            img.onload = () => {
-                if (resolved) return;
-                resolved = true;
-                badge.className = "px-3 py-1 rounded-lg text-xs font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
-                badge.innerText = "Online (:80)";
-            };
-
-            img.onerror = () => {
-                setTimeout(async () => {
-                    if (resolved) return;
-                    try {
-                        const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 1500);
-                        await fetch("http://127.0.0.1:80/?search=ping", { mode: 'no-cors', signal: controller.signal });
-                        clearTimeout(timeoutId);
-                        badge.className = "px-3 py-1 rounded-lg text-xs font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
-                        badge.innerText = "Online (:80)";
-                    } catch (e) {
-                        badge.className = "px-3 py-1 rounded-lg text-xs font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
-                        badge.innerText = "Port 80 Ready";
-                    }
-                    resolved = true;
-                }, 300);
-            };
-
-            img.src = "http://127.0.0.1:80/favicon.ico?t=" + Date.now();
+        async function reloadFromDisk() {
+            if (!directoryHandle) {
+                showFolderPickerModal();
+                return;
+            }
+            await syncFolder();
         }
 
-        function runAllChecks() {
-            checkOmniroute();
-            checkEverything();
-            loadHardcodedEnv();
+        // FIND_FILE.PY PORT MANAGER
+        async function getFindFileHandle() {
+            if (!directoryHandle) return null;
+            try {
+                const toolsDir = await directoryHandle.getDirectoryHandle('logic_tools', { create: false });
+                return await toolsDir.getFileHandle('find_file.py', { create: false });
+            } catch (e) {
+                try {
+                    return await directoryHandle.getFileHandle('find_file.py', { create: false });
+                } catch (e2) {
+                    return null;
+                }
+            }
+        }
+
+        async function readFindFilePort() {
+            try {
+                const handle = await getFindFileHandle();
+                if (!handle) {
+                    addLog('find_file.py not located in logic_tools folder.', 'warn');
+                    return;
+                }
+                const file = await handle.getFile();
+                const text = await file.text();
+                const match = text.match(/http:\/\/127\.0\.0\.1:(\d+)\//);
+                if (match && match[1]) {
+                    const port = match[1];
+                    document.getElementById('find_file_port').value = port;
+                    document.getElementById('lbl-everything-port').innerText = port;
+                    addLog(`Detected Everything service port in find_file.py: ${port}`, 'highlight');
+                }
+            } catch (e) {
+                console.warn('Error reading find_file.py port', e);
+            }
+        }
+
+        async function saveFindFilePort() {
+            if (!directoryHandle) {
+                showFolderPickerModal();
+                return;
+            }
+
+            const newPort = document.getElementById('find_file_port').value.trim();
+            if (!newPort || isNaN(newPort)) {
+                triggerToast('Please provide a valid numeric port', true);
+                return;
+            }
+
+            try {
+                const handle = await getFindFileHandle();
+                if (!handle) {
+                    triggerToast('find_file.py not found in logic_tools', true);
+                    return;
+                }
+
+                const file = await handle.getFile();
+                let text = await file.text();
+
+                if (!text.includes('127.0.0.1:')) {
+                    triggerToast('Could not find URL pattern in find_file.py', true);
+                    return;
+                }
+
+                text = text.replace(/http:\/\/127\.0\.0\.1:\d+\//, `http://127.0.0.1:${newPort}/`);
+                const writable = await handle.createWritable();
+                await writable.write(text);
+                await writable.close();
+
+                document.getElementById('lbl-everything-port').innerText = newPort;
+                addLog(`Updated find_file.py port to ${newPort} successfully.`, 'success');
+                triggerToast(`find_file.py port updated to ${newPort}!`);
+            } catch (e) {
+                addLog(`Failed to update find_file.py port: ${e.message}`, 'error');
+                triggerToast(`Update failed: ${e.message}`, true);
+            }
+        }
+
+        // API KEY VERIFIERS
+        async function verifyGroq() {
+            const key = document.getElementById('GROQ_API_KEY').value.trim();
+            const badge = document.getElementById('groq-verify-status');
+            if (!key) {
+                badge.innerHTML = '<span class="verify-badge err">Key is empty</span>';
+                return;
+            }
+            badge.innerHTML = '<span class="verify-badge testing">Checking Groq API...</span>';
+            try {
+                const res = await fetch('https://api.groq.com/openai/v1/models', {
+                    headers: { 'Authorization': `Bearer ${key}` }
+                });
+                if (res.ok) {
+                    badge.innerHTML = '<span class="verify-badge ok">&check; Valid Groq Key</span>';
+                    addLog('Groq API Key verified successfully.', 'success');
+                } else {
+                    const err = await res.json().catch(() => ({}));
+                    const msg = err.error?.message || `HTTP ${res.status}`;
+                    badge.innerHTML = `<span class="verify-badge err">&cross; ${msg}</span>`;
+                    addLog(`Groq verification failed: ${msg}`, 'error');
+                }
+            } catch (e) {
+                badge.innerHTML = `<span class="verify-badge err">&cross; Network Error</span>`;
+                addLog(`Groq check error: ${e.message}`, 'warn');
+            }
+        }
+
+        async function verifyOmniRoute() {
+            const key = document.getElementById('API_KEY').value.trim();
+            const badge = document.getElementById('omniroute-verify-status');
+            const baseUrl = document.getElementById('BASE_URL').value.trim() || 'http://localhost:20128/v1';
+            badge.innerHTML = '<span class="verify-badge testing">Checking OmniRoute...</span>';
+            try {
+                const res = await fetch(`${baseUrl}/models`, {
+                    headers: key ? { 'Authorization': `Bearer ${key}` } : {}
+                });
+                if (res.ok) {
+                    badge.innerHTML = '<span class="verify-badge ok">&check; Active &amp; Authorized</span>';
+                    addLog('OmniRoute Gateway verified online.', 'success');
+                } else {
+                    badge.innerHTML = `<span class="verify-badge err">&cross; HTTP ${res.status}</span>`;
+                    addLog(`OmniRoute returned status ${res.status}`, 'warn');
+                }
+            } catch (e) {
+                badge.innerHTML = `<span class="verify-badge err">&cross; Connection Failed (Is service running?)</span>`;
+                addLog(`OmniRoute unreachable at ${baseUrl}`, 'error');
+            }
+        }
+
+        async function verifyTinyfish() {
+            const key = document.getElementById('TINYFISH_API_KEY').value.trim();
+            const badge = document.getElementById('tinyfish-verify-status');
+            if (!key) {
+                badge.innerHTML = '<span class="verify-badge err">Key is empty</span>';
+                return;
+            }
+            badge.innerHTML = '<span class="verify-badge testing">Format verification...</span>';
+            if (key.startsWith('sk-')) {
+                badge.innerHTML = '<span class="verify-badge ok">&check; Valid Key Format</span>';
+                addLog('TinyFish API Key format checked.', 'success');
+            } else {
+                badge.innerHTML = '<span class="verify-badge err">&cross; Invalid Format (Must start with sk-)</span>';
+            }
+        }
+
+        async function verifyYou() {
+            const key = document.getElementById('YOU_API_KEY').value.trim();
+            const badge = document.getElementById('you-verify-status');
+            if (!key) {
+                badge.innerHTML = '<span class="verify-badge err">Key is empty</span>';
+                return;
+            }
+            badge.innerHTML = '<span class="verify-badge testing">Format verification...</span>';
+            if (key.startsWith('ydc-sk-') || key.length > 20) {
+                badge.innerHTML = '<span class="verify-badge ok">&check; Valid Key Format</span>';
+                addLog('You.com Key format verified.', 'success');
+            } else {
+                badge.innerHTML = '<span class="verify-badge err">&cross; Unexpected Key format</span>';
+            }
+        }
+
+        // PORT PROBERS
+        async function probePort(url, badgeId, serviceName) {
+            const badge = document.getElementById(badgeId);
+            badge.className = 'verify-badge testing';
+            badge.innerText = 'Pinging...';
+            try {
+                await fetch(url, { method: 'GET', mode: 'no-cors', cache: 'no-store' });
+                badge.className = 'verify-badge ok';
+                badge.innerHTML = '&check; Active';
+                addLog(`${serviceName} is active &amp; responding.`, 'success');
+            } catch (err) {
+                badge.className = 'verify-badge err';
+                badge.innerHTML = '&cross; Inactive / Refused';
+                addLog(`${serviceName} unreachable on target port.`, 'warn');
+            }
+        }
+
+        function checkAllPorts() {
+            const port = document.getElementById('find_file_port').value.trim() || '80';
+            probePort(`http://127.0.0.1:${port}/`, 'badge-port-everything', `Everything (Port ${port})`);
+            probePort('http://127.0.0.1:20128/', 'badge-port-omniroute', 'OmniRoute (Port 20128)');
+        }
+
+        // FIELD UTILITIES
+        function toggleField(id) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.type = el.type === 'password' ? 'text' : 'password';
+        }
+
+        let allVisible = false;
+        function toggleAllKeys() {
+            allVisible = !allVisible;
+            const keys = ['API_KEY', 'GROQ_API_KEY', 'TINYFISH_API_KEY', 'YOU_API_KEY'];
+            keys.forEach(k => {
+                const el = document.getElementById(k);
+                if (el) el.type = allVisible ? 'text' : 'password';
+            });
+            addLog(`Keys visibility toggled to: ${allVisible ? 'PLAIN TEXT' : 'MASKED'}`);
+        }
+
+        async function copyField(id) {
+            const el = document.getElementById(id);
+            if (!el || !el.value) return;
+            try {
+                await navigator.clipboard.writeText(el.value);
+                triggerToast(`Copied ${id} to clipboard!`);
+            } catch (e) {
+                triggerToast('Clipboard access denied', true);
+            }
         }
 
         window.addEventListener('DOMContentLoaded', () => {
-            runAllChecks();
+            populateForm(DEFAULT_ENV);
+            // Always pop the big modal on page load
+            showFolderPickerModal();
+            setTimeout(checkAllPorts, 1200);
         });
     </script>
 </body>

@@ -141,6 +141,9 @@ def listen_with_vad() -> bytes | None:
     start_time = time.monotonic()
     speech_start = None
 
+    # Kill any of my own TTS before the mic opens, so I can't hear myself.
+    stop_all_audio()
+
     with sd.RawInputStream(
         samplerate=SAMPLE_RATE,
         blocksize=FRAME_SAMPLES,
@@ -287,6 +290,19 @@ def get_voice() -> str | None:
             if is_hallucination and (duration_sec < 1.1 or rms < 320):
                 # This was almost certainly a hallucination
                 return None
+
+            # Echo gate: if this transcript is my own last TTS line, drop it.
+            try:
+                import logic_voice as _lv
+                last = (getattr(_lv, "LAST_SPOKEN", "") or "").strip().lower()
+                if last:
+                    norm = lambda s: " ".join(s.lower().split())
+                    t_norm = norm(text)
+                    l_norm = norm(last)
+                    if t_norm and l_norm and (t_norm in l_norm or l_norm in t_norm):
+                        return None
+            except Exception:
+                pass
 
             return text
 
